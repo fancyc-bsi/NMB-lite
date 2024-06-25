@@ -1,0 +1,15 @@
+#!/bin/bash
+
+echo "Building the image, please wait..."
+
+podman build -t nmb-test -f tests/Dockerfile . > /dev/null 2>&1
+BUILD_STATUS=$?
+
+if [ $BUILD_STATUS -ne 0 ]; then
+    echo "Image build failed!"
+    exit 1
+fi
+
+echo "Image built successfully. Running the container..."
+
+podman run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN nmb-test

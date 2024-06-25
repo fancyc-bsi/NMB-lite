@@ -1,5 +1,5 @@
-title: NMB
-baseurl: "/NMB"
+title: NMB-lite
+baseurl: "/NMB-lite"
 permalink: pretty
 markdown: kramdown
 theme: just-the-docs
@@ -11,6 +11,6 @@ plugins:
 
 just_the_docs:
   aux_links:
-    "Source on GitHub": "https://github.com/fancyc-bsi/NMB"
+    "Source on GitHub": "https://github.com/fancyc-bsi/NMB-lite"
   search_enabled: true
   search_label: 'Search the docs...'

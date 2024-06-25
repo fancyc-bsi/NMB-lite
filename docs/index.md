@@ -19,7 +19,7 @@ NMB is a versatile tool designed for pentesters. It automates the process of run
 
 ## Getting started
 
-To use NMB, simply download the binary from the release tab on github (https://github.com/mavedirra-01/NMB)
+To use NMB, simply download the binary from the release tab on github (https://github.com/fancyc-bsi/NMB-lite)
 
 That's it, no other dependencies are required!
 

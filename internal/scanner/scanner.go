@@ -25,6 +25,13 @@ type Scanner struct {
 
 func (s *Scanner) RunScans(wg *sync.WaitGroup, jobs <-chan nessus.Finding) {
 	defer wg.Done()
+
+	defer func() {
+		if r := recover(); r != nil {
+			logging.ErrorLogger.Printf("Recovered from panic: %v", r)
+		}
+	}()
+
 	verifiedPlugins := make(map[string]bool)
 
 	for finding := range jobs {
@@ -42,6 +49,7 @@ func (s *Scanner) RunScans(wg *sync.WaitGroup, jobs <-chan nessus.Finding) {
 		}
 	}
 }
+
 
 func (s *Scanner) verifyFinding(plugin config.Plugin, finding nessus.Finding) bool {
 	success := s.executeScan(plugin, finding, false)

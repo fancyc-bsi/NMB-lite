@@ -16,6 +16,17 @@ import (
 func main() {
 	logging.Init()
 
+	defer func() {
+		if r := recover(); r != nil {
+			logging.ErrorLogger.Printf("Unexpected error: %v", r)
+			os.Exit(1)
+		}
+	}()
+
+	runApplication()
+}
+
+func runApplication() {
 	parsedArgs := args.ParseArgs()
 
 	var cfg config.Config
@@ -40,7 +51,14 @@ func main() {
 	}
 	report.SupportedPlugins, report.MissingPlugins = nessus.GetSupportedAndMissingPlugins(findings, cfg.Plugins)
 
-	scn := scanner.Scanner{Config: cfg, Findings: findings, PluginData: pluginData, ProjectFolder: parsedArgs.ProjectFolder, Report: report}
+	scn := scanner.Scanner{
+		Config:        cfg,
+		Findings:      findings,
+		PluginData:    pluginData,
+		ProjectFolder: parsedArgs.ProjectFolder,
+		Report:        report,
+	}
+
 	workerpool.StartWorkerPool(parsedArgs.NumWorkers, findings, scn.RunScans)
 
 	if err := report.Generate(); err != nil {

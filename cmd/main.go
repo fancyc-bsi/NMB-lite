@@ -5,6 +5,7 @@ import (
 	"NMB/internal/config"
 	"NMB/internal/logging"
 	"NMB/internal/nessus"
+	"NMB/internal/remote"
 	"NMB/internal/render"
 	"NMB/internal/report"
 	"NMB/internal/scanner"
@@ -23,10 +24,10 @@ func main() {
 		}
 	}()
 
-	runApplication()
+	RunNMB()
 }
 
-func runApplication() {
+func RunNMB() {
 	parsedArgs := args.ParseArgs()
 
 	var cfg config.Config
@@ -51,12 +52,29 @@ func runApplication() {
 	}
 	report.SupportedPlugins, report.MissingPlugins = nessus.GetSupportedAndMissingPlugins(findings, cfg.Plugins)
 
+	var remoteExec *remote.RemoteExecutor
+	if parsedArgs.RemoteHost != "" {
+		var err error
+		remoteExec, err = remote.NewRemoteExecutor(
+			parsedArgs.RemoteHost,
+			parsedArgs.RemoteUser,
+			parsedArgs.RemotePass,
+			parsedArgs.RemoteKey,
+		)
+		if err != nil {
+			logging.ErrorLogger.Fatalf("Failed to initialize remote executor: %v", err)
+		}
+		defer remoteExec.Close()
+		logging.InfoLogger.Printf("Connected to remote host: %s", parsedArgs.RemoteHost)
+	}
+
 	scn := scanner.Scanner{
 		Config:        cfg,
 		Findings:      findings,
 		PluginData:    pluginData,
 		ProjectFolder: parsedArgs.ProjectFolder,
 		Report:        report,
+		RemoteExec:    remoteExec,
 	}
 
 	workerpool.StartWorkerPool(parsedArgs.NumWorkers, findings, scn.RunScans)

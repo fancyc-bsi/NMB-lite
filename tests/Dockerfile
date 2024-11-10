@@ -1,39 +1,42 @@
 # Use the official Golang image to build the Go app
-FROM golang:1.20 as builder
+FROM golang:1.20-bullseye as builder
+
+# Set CGO_ENABLED=0 for static compilation
+ENV CGO_ENABLED=0
 
 # Set the Current Working Directory inside the container
 WORKDIR /app
 
-# Copy go mod and sum files
-COPY go.mod go.sum ./
-
-# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
-RUN go mod download
-
-# Copy the source from the current directory to the Working Directory inside the container
+# Copy the source code
 COPY cmd cmd
 COPY internal internal
 
-# Build the Go app
-RUN go build -o nmb cmd/main.go
+# Copy go mod and sum files
+COPY go.mod go.sum ./
 
-# Start a new stage from scratch
-FROM debian:bullseye-slim
+# Download all dependencies
+RUN go mod download
+
+# Build the Go app with static linking
+RUN go build -ldflags="-w -s" -o nmb cmd/main.go
+
+# Use Alpine for the final image
+FROM alpine:3.18
 
 # Install required packages
-RUN apt-get update && apt-get install -y nmap && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache nmap curl
 
 # Copy the Pre-built binary file from the previous stage
 COPY --from=builder /app/nmb /usr/local/bin/nmb
 
-# Copy the test CSV file from the tests directory
+# Copy the test CSV file
 COPY tests/test.csv /app/test.csv
 
-# Set the Current Working Directory inside the container
+# Set the Working Directory
 WORKDIR /app
 
 # Create the output directory
 RUN mkdir -p /app/output
 
-# Command to run the executable with t.csv and display the report
+# Command to run the executable
 CMD ["sh", "-c", "nmb -nessus /app/test.csv && cat /app/output/NMB_scan_report.md"]

@@ -1,16 +1,19 @@
 package scanner
 
 import (
+	"context"
 	"crypto/md5"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"NMB/internal/config"
 	"NMB/internal/logging"
 	"NMB/internal/nessus"
+	"NMB/internal/remote"
 	"NMB/internal/report"
 	"NMB/internal/screenshot"
 )
@@ -21,114 +24,147 @@ type Scanner struct {
 	PluginData    map[string]nessus.PluginData
 	ProjectFolder string
 	Report        *report.Report
+	RemoteExec    *remote.RemoteExecutor
+	mu            sync.Mutex
 }
+
+const (
+	maxRetries   = 2
+	scanTimeout  = 5 * time.Minute
+	nmapScanType = "nmap -T4 --host-timeout 300s"
+)
 
 func (s *Scanner) RunScans(wg *sync.WaitGroup, jobs <-chan nessus.Finding) {
 	defer wg.Done()
-
 	defer func() {
 		if r := recover(); r != nil {
 			logging.ErrorLogger.Printf("Recovered from panic: %v", r)
 		}
 	}()
 
-	verifiedPlugins := make(map[string]bool)
+	verifiedPlugins := sync.Map{}
+	var scanWg sync.WaitGroup
 
 	for finding := range jobs {
-		if verifiedPlugins[finding.PluginID] || !s.isInPluginData(finding.PluginID) {
+		if _, verified := verifiedPlugins.Load(finding.PluginID); verified || !s.isInPluginData(finding.PluginID) {
 			continue
 		}
 
-		for _, plugin := range s.Config.Plugins {
-			if contains(plugin.IDs, finding.PluginID) {
-				if s.verifyFinding(plugin, finding) {
-					verifiedPlugins[finding.PluginID] = true
-					break
+		scanWg.Add(1)
+		go func(f nessus.Finding) {
+			defer scanWg.Done()
+
+			for _, plugin := range s.Config.Plugins {
+				if contains(plugin.IDs, f.PluginID) {
+					if s.verifyFinding(plugin, f) {
+						verifiedPlugins.Store(f.PluginID, true)
+						break
+					}
 				}
 			}
-		}
+		}(finding)
 	}
-}
 
+	scanWg.Wait()
+}
 
 func (s *Scanner) verifyFinding(plugin config.Plugin, finding nessus.Finding) bool {
-	success := s.executeScan(plugin, finding, false)
-	if !success && plugin.ScanType == "nmap -T4 --host-timeout 300s" {
-		logging.WarningLogger.Printf("Initial scan failed for %s, retrying with -Pn", finding.Name)
-		success = s.executeScan(plugin, finding, true)
+	ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
+	defer cancel()
+
+	resultChan := make(chan bool, 1)
+	go func() {
+		success := s.ExecuteScan(plugin, finding, false)
+		if !success && plugin.ScanType == nmapScanType {
+			logging.WarningLogger.Printf("Initial scan failed for %s, retrying with -Pn", finding.Name)
+			success = s.ExecuteScan(plugin, finding, true)
+		}
+		resultChan <- success
+	}()
+
+	select {
+	case success := <-resultChan:
+		return success
+	case <-ctx.Done():
+		logging.ErrorLogger.Printf("Scan timed out for %s (%s:%s)", finding.Name, finding.Host, finding.Port)
+		s.recordScanResult(finding, plugin, "", "Timeout", "")
+		return false
 	}
-	return success
 }
 
-func (s *Scanner) executeScan(plugin config.Plugin, hostFinding nessus.Finding, retry bool) bool {
-	command := fmt.Sprintf("%s %s", plugin.ScanType, strings.ReplaceAll(plugin.Parameters, "{host}", hostFinding.Host))
-	if retry && plugin.ScanType == "nmap -T4 --host-timeout 300s" {
-		command = fmt.Sprintf("%s -Pn %s", plugin.ScanType, strings.ReplaceAll(plugin.Parameters, "{host}", hostFinding.Host))
-	}
-	command = strings.ReplaceAll(command, "{port}", hostFinding.Port)
+func (s *Scanner) ExecuteScan(plugin config.Plugin, hostFinding nessus.Finding, retry bool) bool {
+	command := buildCommand(plugin, hostFinding, retry)
 	logging.InfoLogger.Printf("Testing: %s:%s for %s", hostFinding.Host, hostFinding.Port, hostFinding.Name)
-	output, err := executeCommand(command)
+
+	output, err := executeCommand(command, s.RemoteExec)
 	if err != nil {
 		logging.ErrorLogger.Printf("[x] Command failed: %v, Command: %s", err, command)
-		s.Report.ScanResults = append(s.Report.ScanResults, report.ScanResult{
-			PluginID: hostFinding.PluginID,
-			Host:     hostFinding.Host,
-			Port:     hostFinding.Port,
-			Name:     hostFinding.Name,
-			Status:   "Command Failed",
-			Command:  command,
-			Output:   output,
-		})
+		s.recordScanResult(hostFinding, plugin, command, "Command Failed", output)
 		return false
 	}
 
-	if plugin.ScanType == "nmap -T4 --host-timeout 300s" && !isPortOpen(output, hostFinding.Port) {
+	if plugin.ScanType == nmapScanType && !isPortOpen(output, hostFinding.Port) {
 		logging.WarningLogger.Printf("Port %s closed: %s:%s for %s", hostFinding.Port, hostFinding.Host, hostFinding.Port, hostFinding.Name)
-		s.Report.ScanResults = append(s.Report.ScanResults, report.ScanResult{
-			PluginID: hostFinding.PluginID,
-			Host:     hostFinding.Host,
-			Port:     hostFinding.Port,
-			Name:     hostFinding.Name,
-			Status:   "Port Closed",
-			Command:  command,
-			Output:   output,
-		})
+		s.recordScanResult(hostFinding, plugin, command, "Port Closed", output)
 		return false
 	}
 
 	if verifyOutput(output, plugin.VerifyWords) {
-		logging.SuccessLogger.Printf("Verified: %s (%s:%s)", hostFinding.Name, hostFinding.Host, hostFinding.Port)
-		pluginNameHash := md5.Sum([]byte(strings.ToLower(hostFinding.Name)))
-		pluginNameHashStr := fmt.Sprintf("%x", pluginNameHash)
-		screenshotPath := fmt.Sprintf("%s.png", pluginNameHashStr)
-		screenshot.Take(s.ProjectFolder, screenshotPath, output, plugin.VerifyWords)
-		s.Report.ScanResults = append(s.Report.ScanResults, report.ScanResult{
-			PluginID:   hostFinding.PluginID,
-			Host:       hostFinding.Host,
-			Port:       hostFinding.Port,
-			Name:       hostFinding.Name,
-			Status:     "Verified",
-			OutputPath: filepath.Join(s.ProjectFolder, screenshotPath),
-			Command:    command,
-			Output:     output,
-		})
+		s.handleSuccessfulScan(hostFinding, plugin, command, output)
 		return true
 	}
 
 	logging.ErrorLogger.Printf("Verification failed: %s (%s:%s)", hostFinding.Name, hostFinding.Host, hostFinding.Port)
-	s.Report.ScanResults = append(s.Report.ScanResults, report.ScanResult{
-		PluginID: hostFinding.PluginID,
-		Host:     hostFinding.Host,
-		Port:     hostFinding.Port,
-		Name:     hostFinding.Name,
-		Status:   "Verification Failed",
-		Command:  command,
-		Output:   output,
-	})
+	s.recordScanResult(hostFinding, plugin, command, "Verification Failed", output)
 	return false
 }
 
-func executeCommand(command string) (string, error) {
+func (s *Scanner) handleSuccessfulScan(finding nessus.Finding, plugin config.Plugin, command, output string) {
+	logging.SuccessLogger.Printf("Verified: %s (%s:%s)", finding.Name, finding.Host, finding.Port)
+
+	pluginNameHash := md5.Sum([]byte(strings.ToLower(finding.Name)))
+	screenshotPath := fmt.Sprintf("%s.png", fmt.Sprintf("%x", pluginNameHash))
+
+	screenshot.Take(s.ProjectFolder, screenshotPath, output, plugin.VerifyWords)
+
+	s.recordScanResult(finding, plugin, command, "Verified", output, filepath.Join(s.ProjectFolder, screenshotPath))
+}
+
+func (s *Scanner) recordScanResult(finding nessus.Finding, plugin config.Plugin, command, status, output string, paths ...string) {
+	var outputPath string
+	if len(paths) > 0 {
+		outputPath = paths[0]
+	}
+
+	// Lock before modifying the report
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.Report.ScanResults = append(s.Report.ScanResults, report.ScanResult{
+		PluginID:   finding.PluginID,
+		Host:       finding.Host,
+		Port:       finding.Port,
+		Name:       finding.Name,
+		Status:     status,
+		Command:    command,
+		Output:     output,
+		OutputPath: outputPath,
+	})
+}
+
+func buildCommand(plugin config.Plugin, finding nessus.Finding, retry bool) string {
+	command := fmt.Sprintf("%s %s", plugin.ScanType, strings.ReplaceAll(plugin.Parameters, "{host}", finding.Host))
+	if retry && plugin.ScanType == nmapScanType {
+		command = fmt.Sprintf("%s -Pn %s", plugin.ScanType, strings.ReplaceAll(plugin.Parameters, "{host}", finding.Host))
+	}
+	return strings.ReplaceAll(command, "{port}", finding.Port)
+}
+
+func executeCommand(command string, remoteExec *remote.RemoteExecutor) (string, error) {
+	if remoteExec != nil {
+		return remoteExec.ExecuteCommand(command)
+	}
+
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

@@ -30,6 +30,7 @@ That's it, no other dependencies are required!
 - **Screenshot Integration:** Automatically captures screenshots of scan results for visual verification.
 - **Retry Mechanism:** Implements a retry mechanism for `nmap` scans with the `-Pn` option if the initial scan fails.
 - **Report Generation:** Generates markdown and HTML reports of the scan results.
+- **Remote Execution** Executes verification steps on remote host instead of locally if selected.
 
 ## Configuration
 

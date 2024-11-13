@@ -1,5 +1,7 @@
 package scanner
 
+// how do we not create a new ssh session every time we execute a command?
+
 import (
 	"context"
 	"crypto/md5"
@@ -30,7 +32,7 @@ type Scanner struct {
 
 const (
 	maxRetries   = 2
-	scanTimeout  = 5 * time.Minute
+	scanTimeout  = 3 * time.Minute
 	nmapScanType = "nmap -T4 --host-timeout 300s"
 )
 

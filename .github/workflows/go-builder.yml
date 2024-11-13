@@ -15,8 +15,19 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        goos: [linux, darwin, windows]
-        goarch: [amd64]
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            output: nmb_linux_amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            output: nmb_darwin_amd64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            output: nmb_windows_amd64.exe
 
     steps:
       - name: Checkout code
@@ -29,7 +40,7 @@ jobs:
 
       - name: Build binary
         run: |
-          go build -o nmb_${{ matrix.goos }}_${{ matrix.goarch }} cmd/main.go
+          go build -o ${{ matrix.output }} cmd/main.go
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -37,5 +48,5 @@ jobs:
       - name: Archive binary
         uses: actions/upload-artifact@v4
         with:
-          name: nmb_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: nmb_${{ matrix.goos }}_${{ matrix.goarch }}
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}

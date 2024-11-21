@@ -1,22 +1,24 @@
+// main.go
 package main
 
 import (
+	"os"
+	"path/filepath"
+
 	"NMB/internal/args"
 	"NMB/internal/config"
 	"NMB/internal/logging"
 	"NMB/internal/nessus"
+	NessusController "NMB/internal/nessus-controller"
 	"NMB/internal/remote"
 	"NMB/internal/render"
 	"NMB/internal/report"
 	"NMB/internal/scanner"
 	"NMB/internal/workerpool"
-	"os"
-	"path/filepath"
 )
 
 func main() {
 	logging.Init()
-
 	defer func() {
 		if r := recover(); r != nil {
 			logging.ErrorLogger.Printf("Unexpected error: %v", r)
@@ -24,12 +26,101 @@ func main() {
 		}
 	}()
 
-	RunNMB()
-}
-
-func RunNMB() {
 	parsedArgs := args.ParseArgs()
 
+	// If Nessus controller mode is specified, handle it separately
+	if parsedArgs.NessusMode != "" {
+		handleNessusController(parsedArgs)
+		return
+	}
+
+	// Original NMB functionality
+	RunNMB(parsedArgs)
+}
+
+func handleNessusController(parsedArgs *args.Args) {
+	validateNessusArgs(parsedArgs)
+
+	// Initialize Nessus controller
+	controller, err := NessusController.New(
+		parsedArgs.RemoteHost,
+		parsedArgs.RemoteUser,
+		parsedArgs.RemotePass,
+		parsedArgs.ProjectName,
+		parsedArgs.TargetsFile,
+		getExcludeFiles(parsedArgs),
+		parsedArgs.Discovery,
+	)
+	if err != nil {
+		logging.ErrorLogger.Fatalf("Failed to initialize Nessus controller: %v", err)
+	}
+
+	// Execute the requested operation
+	var execErr error
+	switch parsedArgs.NessusMode {
+	case "deploy":
+		execErr = controller.Deploy()
+	case "create":
+		execErr = controller.Create()
+	case "launch":
+		execErr = controller.Launch()
+	case "pause":
+		execErr = controller.Pause()
+	case "resume":
+		execErr = controller.Resume()
+	case "monitor":
+		execErr = controller.Monitor()
+	case "export":
+		execErr = controller.Export()
+	default:
+		logging.ErrorLogger.Fatalf("Invalid Nessus mode: %s", parsedArgs.NessusMode)
+	}
+
+	if execErr != nil {
+		logging.ErrorLogger.Fatalf("Failed to execute Nessus %s mode: %v", parsedArgs.NessusMode, execErr)
+	}
+
+	logging.InfoLogger.Printf("Successfully completed Nessus %s operation", parsedArgs.NessusMode)
+}
+
+func validateNessusArgs(args *args.Args) {
+	if args.RemoteHost == "" {
+		logging.ErrorLogger.Fatal("Remote host (-remote) is required for Nessus controller operations")
+	}
+	if args.RemoteUser == "" {
+		logging.ErrorLogger.Fatal("Remote user (-user) is required for Nessus controller operations")
+	}
+	if args.RemotePass == "" {
+		logging.ErrorLogger.Fatal("Remote password (-password) is required for Nessus controller operations")
+	}
+	if args.ProjectName == "" {
+		logging.ErrorLogger.Fatal("Project name (-name) is required for Nessus controller operations")
+	}
+
+	// Validate mode-specific requirements
+	switch args.NessusMode {
+	case "deploy", "create":
+		if args.TargetsFile == "" {
+			logging.ErrorLogger.Fatal("Targets file (-targets) is required for deploy/create operations")
+		}
+	}
+}
+
+func getExcludeFiles(args *args.Args) []string {
+	var excludeFiles []string
+	if args.ExcludeFile != "" {
+		excludeFiles = append(excludeFiles, args.ExcludeFile)
+	}
+	return excludeFiles
+}
+
+func RunNMB(parsedArgs *args.Args) {
+	// Validate required args for NMB mode
+	if parsedArgs.NessusFilePath == "" || parsedArgs.NessusFilePath == "path/to/nessus.csv" {
+		logging.ErrorLogger.Fatal("Nessus file path (-nessus) is required for NMB operation")
+	}
+
+	// Load configuration
 	var cfg config.Config
 	if parsedArgs.ConfigFilePath != "" {
 		if _, err := os.Stat(parsedArgs.ConfigFilePath); os.IsNotExist(err) {
@@ -40,6 +131,11 @@ func RunNMB() {
 	} else {
 		cfg = config.LoadEmbeddedConfig()
 		logging.InfoLogger.Println("Using embedded config")
+	}
+
+	// Create project folder if it doesn't exist
+	if err := os.MkdirAll(parsedArgs.ProjectFolder, 0755); err != nil {
+		logging.ErrorLogger.Fatalf("Failed to create project folder: %v", err)
 	}
 
 	findings, pluginData, err := nessus.ParseCSV(parsedArgs.NessusFilePath)
@@ -54,7 +150,6 @@ func RunNMB() {
 
 	var remoteExec *remote.RemoteExecutor
 	if parsedArgs.RemoteHost != "" {
-		var err error
 		remoteExec, err = remote.NewRemoteExecutor(
 			parsedArgs.RemoteHost,
 			parsedArgs.RemoteUser,
@@ -79,6 +174,10 @@ func RunNMB() {
 
 	workerpool.StartWorkerPool(parsedArgs.NumWorkers, findings, scn.RunScans)
 
+	generateAndSaveReport(report, parsedArgs.ProjectFolder)
+}
+
+func generateAndSaveReport(report *report.Report, projectFolder string) {
 	if err := report.Generate(); err != nil {
 		logging.ErrorLogger.Fatalf("Failed to generate report: %v", err)
 	}
@@ -88,7 +187,7 @@ func RunNMB() {
 		logging.ErrorLogger.Fatalf("Failed to render report: %v", err)
 	}
 
-	reportFilePath := filepath.Join(parsedArgs.ProjectFolder, "NMB_scan_report.html")
+	reportFilePath := filepath.Join(projectFolder, "NMB_scan_report.html")
 	if err := os.WriteFile(reportFilePath, []byte(renderedContent), 0644); err != nil {
 		logging.ErrorLogger.Fatalf("Failed to write rendered report: %v", err)
 	}

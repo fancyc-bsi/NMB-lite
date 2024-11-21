@@ -1,7 +1,5 @@
 package scanner
 
-// how do we not create a new ssh session every time we execute a command?
-
 import (
 	"context"
 	"crypto/md5"

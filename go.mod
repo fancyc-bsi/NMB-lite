@@ -3,6 +3,7 @@ module NMB
 go 1.22
 
 require (
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/crypto v0.29.0
 	golang.org/x/image v0.17.0
 )

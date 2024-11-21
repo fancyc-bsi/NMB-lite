@@ -1888,16 +1888,6 @@
                 "VULNERABLE"
             ]
         },
-        "Clickjacking_Checks": {
-            "ids": [
-                "85582"
-            ],
-            "scan_type": "",
-            "parameters": "curl --silent -I -L -k https://{host}:{port} || curl --silent -I -L http://{host}:{port}",
-            "verify_words": [
-                "HTTP/1.1 200 OK"
-            ]
-        },
         "AMQP_Info_Checks": {
             "ids": [
                 "87733"

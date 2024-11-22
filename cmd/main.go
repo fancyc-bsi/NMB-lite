@@ -2,8 +2,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/fatih/color"
 
 	"NMB/internal/args"
 	"NMB/internal/config"
@@ -80,7 +84,7 @@ func handleNessusController(parsedArgs *args.Args) {
 		logging.ErrorLogger.Fatalf("Failed to execute Nessus %s mode: %v", parsedArgs.NessusMode, execErr)
 	}
 
-	logging.InfoLogger.Printf("Successfully completed Nessus %s operation", parsedArgs.NessusMode)
+	logging.SuccessLogger.Printf("Successfully completed Nessus %s operation", parsedArgs.NessusMode)
 }
 
 func validateNessusArgs(args *args.Args) {
@@ -112,6 +116,30 @@ func getExcludeFiles(args *args.Args) []string {
 		excludeFiles = append(excludeFiles, args.ExcludeFile)
 	}
 	return excludeFiles
+}
+
+func printSupportedPlugins(supportedPlugins []string) {
+	if len(supportedPlugins) == 0 {
+		fmt.Println("No supported plugins found.")
+		return
+	}
+
+	// Styling for headers and plugin lists
+	header := color.New(color.FgHiGreen, color.Bold).SprintfFunc()
+	pluginItem := color.New(color.FgHiBlue).SprintfFunc()
+	divider := strings.Repeat("=", 50)
+
+	// Print header
+	fmt.Println(divider)
+	fmt.Println(header("Supported Plugins List"))
+	fmt.Println(divider)
+
+	// Print plugins
+	for i, plugin := range supportedPlugins {
+		fmt.Printf("%s %s\n", pluginItem("[%d]", i+1), plugin)
+	}
+
+	fmt.Println(divider)
 }
 
 func RunNMB(parsedArgs *args.Args) {
@@ -148,8 +176,11 @@ func RunNMB(parsedArgs *args.Args) {
 	}
 	report.SupportedPlugins, report.MissingPlugins = nessus.GetSupportedAndMissingPlugins(findings, cfg.Plugins)
 
+	printSupportedPlugins(report.SupportedPlugins)
+
 	var remoteExec *remote.RemoteExecutor
 	if parsedArgs.RemoteHost != "" {
+		var err error
 		remoteExec, err = remote.NewRemoteExecutor(
 			parsedArgs.RemoteHost,
 			parsedArgs.RemoteUser,

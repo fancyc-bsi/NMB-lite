@@ -2,3 +2,6 @@ app.log
 /output
 *.xml
 *.csv
+targets.txt
+nmb.exe
+evidence/

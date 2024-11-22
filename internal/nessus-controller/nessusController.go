@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,12 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"NMB/internal/logging"
 	"NMB/internal/remote"
-
-	"github.com/sirupsen/logrus"
 )
-
-var log = logrus.New()
 
 type Nessus struct {
 	remote       *remote.RemoteExecutor
@@ -55,7 +53,6 @@ func (n *Nessus) getTokens() error {
 
 	client := createInsecureClient()
 
-	// Get cookie token
 	resp, err := client.Post(n.url+"/session", "application/json", bytes.NewBuffer(authData))
 	if err != nil {
 		return fmt.Errorf("failed to get cookie token: %v", err)
@@ -140,21 +137,21 @@ func (n *Nessus) getAPIKeys() error {
 }
 
 func (n *Nessus) authenticate() error {
-	log.Info("Retrieving API tokens")
+	logging.InfoLogger.Printf("Retrieving API tokens")
 
 	// Get tokens (cookie token and API token)
 	if err := n.getTokens(); err != nil {
-		log.Error("Failed to retrieve API tokens - check your login credentials")
+		logging.ErrorLogger.Printf("Failed to retrieve API tokens - check your login credentials")
 		return err
 	}
 
 	// Get API keys
 	if err := n.getAPIKeys(); err != nil {
-		log.Error("Failed to retrieve API keys - check your login credentials")
+		logging.ErrorLogger.Printf("Failed to retrieve API keys - check your login credentials")
 		return err
 	}
 
-	log.Info("API tokens retrieved successfully")
+	logging.SuccessLogger.Printf("API tokens retrieved successfully")
 	return nil
 }
 
@@ -180,7 +177,6 @@ func (n *Nessus) makeRequest(method, endpoint string, body []byte) (*http.Respon
 	return client.Do(req)
 }
 
-// Update the New function to use authenticate() instead of the old getAuth()
 func New(host, username, password, projectName, targetsFile string, excludeFile []string, discovery bool) (*Nessus, error) {
 	remote, err := remote.NewRemoteExecutor(host, username, password, "")
 	if err != nil {
@@ -203,10 +199,17 @@ func New(host, username, password, projectName, targetsFile string, excludeFile 
 		if err != nil {
 			return nil, fmt.Errorf("failed to read targets file: %v", err)
 		}
-		n.targetsList = strings.TrimSpace(string(content))
+		// Split on newlines and remove empty lines
+		targets := []string{}
+		for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				targets = append(targets, trimmed)
+			}
+		}
+		n.targetsList = strings.Join(targets, ",")
+		logging.InfoLogger.Printf("Loaded targets from file: %s", n.targetsList)
 	}
 
-	// Get drone IP and run discovery if needed
 	n.droneIP, err = n.getDroneIP()
 	if err != nil {
 		return nil, err
@@ -219,95 +222,112 @@ func New(host, username, password, projectName, targetsFile string, excludeFile 
 		}
 	}
 
-	// Authenticate with Nessus
+	// Get authentication
 	if err := n.authenticate(); err != nil {
 		return nil, err
 	}
 
 	return n, nil
 }
-
 func (n *Nessus) createScan(launch bool) error {
-	log.Info("Creating new scan")
+	logging.InfoLogger.Printf("Creating new scan")
 
 	// Check if scan already exists
 	if scan := n.getScanInfo(); scan != nil {
-		log.Info("Scan already exists, aborting scan creation")
+		logging.InfoLogger.Printf("Scan already exists, aborting scan creation")
 		return fmt.Errorf("scan name already exists")
 	}
 
 	// Get policy ID
 	policies, err := n.getPolicies()
 	if err != nil {
-		log.Errorf("Failed to get policies: %v", err)
+		logging.ErrorLogger.Printf("Failed to get policies: %v", err)
 		return err
 	}
 
 	var policyID string
+	var templateUUID string
 	for _, policy := range policies {
-		log.Infof("Checking policy: %v", policy) // Debug print the policy object
 		if policy["name"] == "Default Good Model Nessus Vulnerability Policy" {
-			// Safely check if the id is a string or float64
 			switch v := policy["id"].(type) {
 			case string:
 				policyID = v
-				log.Infof("Found policy ID as string: %s", policyID)
 			case float64:
-				policyID = fmt.Sprintf("%v", v) // Convert float64 to string
-				log.Infof("Found policy ID as float64 and converted: %s", policyID)
+				policyID = fmt.Sprintf("%v", v)
 			default:
 				return fmt.Errorf("unexpected type for policy ID: %T", v)
 			}
+			// Get the template UUID from the policy
+			templateUUID = policy["template_uuid"].(string)
 			break
 		}
 	}
 
 	if policyID == "" {
-		log.Error("Policy not found")
+		logging.ErrorLogger.Printf("Policy not found")
 		return fmt.Errorf("policy not found")
 	}
 
-	// Debug print before creating scan data
-	log.Infof("Creating scan with policy ID: %s", policyID)
+	// Use targetsList if no alive hosts (discovery scan wasn't run)
+	targets := n.aliveHosts
+	if targets == "" {
+		targets = n.targetsList
+	}
 
-	// Create scan data
+	if targets == "" {
+		return fmt.Errorf("no targets specified")
+	}
+
+	logging.InfoLogger.Printf("Using targets: %s", targets)
+
+	// Create scan data following Nessus documentation
 	scanData := map[string]interface{}{
+		"uuid": templateUUID,
 		"settings": map[string]interface{}{
-			"name":         n.projectName,
-			"policy_id":    policyID,
-			"launch_now":   launch,
-			"enabled":      false,
-			"scanner_id":   "1",
-			"folder_id":    3,
-			"text_targets": n.aliveHosts,
-			"description":  "No host Discovery\nAll TCP port\nAll Service Discovery\nDefault passwords being tested\nGeneric Web Test\nNo compliance or local Check\nNo DOS plugins\n",
+			"name":           n.projectName,
+			"policy_id":      policyID,
+			"enabled":        true,
+			"launch":         "ON_DEMAND",
+			"scanner_id":     "1",
+			"folder_id":      3,
+			"text_targets":   targets,
+			"description":    "No host Discovery\nAll TCP port\nAll Service Discovery\nDefault passwords being tested\nGeneric Web Test\nNo compliance or local Check\nNo DOS plugins\n",
+			"agent_group_id": []string{},
 		},
+	}
+
+	// If launch is true, we'll start the scan immediately
+	if launch {
+		scanData["settings"].(map[string]interface{})["launch_now"] = true
 	}
 
 	// Debug print scan data
 	scanDataJSON, err := json.Marshal(scanData)
 	if err != nil {
-		log.Errorf("Failed to marshal scan data: %v", err)
+		logging.ErrorLogger.Printf("Failed to marshal scan data: %v", err)
 		return err
 	}
-	log.Infof("Scan data JSON: %s", string(scanDataJSON))
+	logging.InfoLogger.Printf("Scan data JSON: %s", string(scanDataJSON))
 
-	// Make the request using our helper function
+	// Make the request
 	resp, err := n.makeRequest(http.MethodPost, "/scans", scanDataJSON)
 	if err != nil {
-		log.Errorf("Failed to send HTTP request: %v", err)
+		logging.ErrorLogger.Printf("Failed to send HTTP request: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	// Log response status code and body
-	log.Infof("Received response: %s", resp.Status)
+	logging.InfoLogger.Printf("Received response: %s", resp.Status)
+
+	// If response is not 200, read and log the error body
 	if resp.StatusCode != http.StatusOK {
-		log.Errorf("Failed to create scan, status code: %d", resp.StatusCode)
-		return fmt.Errorf("failed to create scan: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		logging.ErrorLogger.Printf("Failed to create scan. Status code: %d, Response body: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("failed to create scan: %s - %s", resp.Status, string(body))
 	}
 
-	log.Info("Scan created successfully")
+	logging.InfoLogger.Printf("Scan created successfully")
 	return nil
 }
 
@@ -326,7 +346,6 @@ func (n *Nessus) excludeTargets() error {
 		excludeHosts = append(excludeHosts, hosts...)
 	}
 
-	// Create a map of hosts to exclude for O(1) lookup
 	excludeMap := make(map[string]bool)
 	for _, host := range excludeHosts {
 		excludeMap[strings.TrimSpace(host)] = true
@@ -351,14 +370,14 @@ func (n *Nessus) excludeTargets() error {
 func (n *Nessus) getScanInfo() map[string]interface{} {
 	resp, err := n.makeRequest(http.MethodGet, "/scans", nil)
 	if err != nil {
-		log.Error("Failed to get scans:", err)
+		logging.ErrorLogger.Printf("Failed to get scans: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Error("Failed to decode response:", err)
+		logging.ErrorLogger.Printf("Failed to decode response: %v", err)
 		return nil
 	}
 
@@ -432,13 +451,13 @@ func (n *Nessus) scanAction(action string) error {
 		return fmt.Errorf("failed to %s scan: %s", action, resp.Status)
 	}
 
-	log.Infof("Scan %s successful", action)
+	logging.InfoLogger.Printf("Scan %s successful", action)
 	return nil
 }
 
 // Monitor scan progress
 func (n *Nessus) monitorScan() error {
-	log.Info("Monitoring scan progress...")
+	logging.InfoLogger.Printf("Monitoring scan progress...")
 
 	for {
 		scan := n.getScanInfo()
@@ -450,97 +469,206 @@ func (n *Nessus) monitorScan() error {
 
 		switch status {
 		case "completed":
-			log.Info("Scan completed successfully")
+			logging.InfoLogger.Printf("Scan completed successfully")
 			return nil
 		case "canceled", "failed":
 			return fmt.Errorf("scan %s", status)
 		case "running", "paused":
 			progress, ok := scan["progress"].(float64)
 			if ok {
-				log.Infof("Scan progress: %.0f%%", progress)
+				logging.InfoLogger.Printf("Scan progress: %.0f%%", progress)
 			}
 			time.Sleep(30 * time.Second)
 		default:
-			log.Infof("Scan status: %s", status)
+			logging.InfoLogger.Printf("Scan status: %s", status)
 			time.Sleep(30 * time.Second)
 		}
 	}
 }
 
-func (n *Nessus) exportScan() error {
-	log.Info("Exporting scan results...")
+type ExportFormat struct {
+	Format            string                 `json:"format"`
+	TemplateID        string                 `json:"template_id,omitempty"`
+	ReportContents    map[string]interface{} `json:"reportContents,omitempty"`
+	ExtraFilters      map[string]interface{} `json:"extraFilters,omitempty"`
+	FormattingOptions map[string]interface{} `json:"formattingOptions,omitempty"`
+}
 
-	scan := n.getScanInfo()
-	if scan == nil {
-		return fmt.Errorf("scan not found")
-	}
+func (n *Nessus) waitForDownload(token, outputFile string) error {
+	startTime := time.Now()
+	maxDuration := 10 * time.Minute // Maximum wait time
 
-	scanID := fmt.Sprintf("%v", scan["id"])
-
-	// Request export
-	exportData := map[string]interface{}{
-		"format":   "nessus",
-		"chapters": "vuln_hosts_summary",
-	}
-
-	exportJSON, err := json.Marshal(exportData)
-	if err != nil {
-		return err
-	}
-
-	// Request the export
-	resp, err := n.makeRequest(http.MethodPost, fmt.Sprintf("/scans/%s/export", scanID), exportJSON)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return err
-	}
-
-	fileID := fmt.Sprintf("%v", result["file"])
-	if fileID == "" {
-		return fmt.Errorf("export file ID not found")
-	}
-
-	// Monitor export status
 	for {
-		resp, err := n.makeRequest(http.MethodGet, fmt.Sprintf("/scans/%s/export/%s/status", scanID, fileID), nil)
+		// Check the elapsed time
+		elapsed := time.Since(startTime)
+		if elapsed > maxDuration {
+			return fmt.Errorf("timed out after %v while waiting for file to be ready", maxDuration)
+		}
+
+		resp, err := n.makeRequest(http.MethodGet, fmt.Sprintf("/tokens/%s/download", token), nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("error checking download status: %v", err)
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK {
-			break
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %v", err)
 		}
 
+		// Check for readiness in both status code and response body
+		if resp.StatusCode == http.StatusOK && !strings.Contains(string(body), "not ready") {
+			// File is genuinely ready, download it
+			out, err := os.Create(outputFile)
+			if err != nil {
+				return fmt.Errorf("failed to create output file: %v", err)
+			}
+			_, err = io.Copy(out, bytes.NewReader(body)) // Use the already-read body
+			out.Close()
+			if err != nil {
+				return fmt.Errorf("failed to write downloaded file: %v", err)
+			}
+
+			logging.InfoLogger.Printf("File downloaded successfully: %s", outputFile)
+			return nil
+		}
+
+		// Handle "not ready" response or other cases
 		time.Sleep(5 * time.Second)
 	}
+}
 
-	// Download the exported scan file
-	resp, err = n.makeRequest(http.MethodGet, fmt.Sprintf("/scans/%s/export/%s/download", scanID, fileID), nil)
+func (n *Nessus) exportScan() (string, error) {
+	logging.InfoLogger.Printf("Exporting scan results...")
+
+	scanInfo := n.getScanInfo()
+	if scanInfo == nil {
+		return "", fmt.Errorf("scan not found")
+	}
+	scanID := fmt.Sprintf("%v", scanInfo["id"])
+	scanName := fmt.Sprintf("%v", scanInfo["name"])
+	status := fmt.Sprintf("%v", scanInfo["status"])
+
+	if status == "running" || status == "pending" {
+		logging.ErrorLogger.Printf("Scan still running, waiting for it to finish...")
+		if err := n.monitorScan(); err != nil {
+			return "", fmt.Errorf("monitoring scan failed: %v", err)
+		}
+	}
+
+	// Create an evidence folder based on the scan name
+	evidenceFolder := filepath.Join(n.outputFolder, "evidence", scanName)
+	if err := os.MkdirAll(evidenceFolder, 0755); err != nil {
+		return "", fmt.Errorf("failed to create evidence folder: %v", err)
+	}
+	logging.InfoLogger.Printf("Created evidence folder: %s", evidenceFolder)
+
+	templateID, err := n.getHTMLTemplateID()
 	if err != nil {
-		return err
+		return "", fmt.Errorf("failed to get HTML template ID: %v", err)
+	}
+
+	formats := map[string]ExportFormat{
+		"csv": {
+			Format: "csv",
+			ReportContents: map[string]interface{}{
+				"csvColumns": map[string]bool{
+					"id": true, "cve": true, "cvss": true,
+					"risk": true, "hostname": true, "protocol": true,
+					"port": true, "plugin_name": true, "synopsis": true,
+					"description": true, "solution": true, "see_also": true,
+					"plugin_output": true, "stig_severity": true,
+					"cvss3_base_score": true, "cvss_temporal_score": true,
+					"cvss3_temporal_score": true, "risk_factor": true,
+					"references": true, "plugin_information": true,
+					"exploitable_with": true,
+				},
+			},
+			ExtraFilters: map[string]interface{}{
+				"host_ids":   []int{},
+				"plugin_ids": []int{},
+			},
+		},
+		"nessus": {
+			Format: "nessus",
+		},
+		"html": {
+			Format:     "html",
+			TemplateID: templateID,
+			ExtraFilters: map[string]interface{}{
+				"host_ids":   []int{},
+				"plugin_ids": []int{},
+			},
+		},
+	}
+
+	for format, config := range formats {
+		logging.InfoLogger.Printf("Exporting %s file...", format)
+
+		exportJSON, err := json.Marshal(config)
+		if err != nil {
+			return "", fmt.Errorf("failed to serialize export config: %v", err)
+		}
+
+		resp, err := n.makeRequest(http.MethodPost, fmt.Sprintf("/scans/%s/export", scanID), exportJSON)
+		if err != nil {
+			return "", fmt.Errorf("export request failed: %v", err)
+		}
+
+		defer resp.Body.Close()
+		var result struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return "", fmt.Errorf("failed to decode export token: %v", err)
+		}
+
+		if result.Token == "" {
+			return "", fmt.Errorf("no export token received for %s format", format)
+		}
+
+		// Create the output file path within the evidence folder
+		outputFile := filepath.Join(evidenceFolder, fmt.Sprintf("%s.%s", scanName, format))
+		if err := n.waitForDownload(result.Token, outputFile); err != nil {
+			return "", fmt.Errorf("failed to download %s file: %v", format, err)
+		}
+
+		logging.SuccessLogger.Printf("Exported %s file to %q", format, outputFile)
+	}
+
+	return filepath.Join(evidenceFolder, fmt.Sprintf("%s.nessus", scanName)), nil
+}
+
+func (n *Nessus) getHTMLTemplateID() (string, error) {
+	resp, err := n.makeRequest(http.MethodGet, "/reports/custom/templates", nil)
+	if err != nil {
+		return "", err
 	}
 	defer resp.Body.Close()
 
-	outputFile := filepath.Join(n.outputFolder, fmt.Sprintf("%s.nessus", n.projectName))
-	out, err := os.Create(outputFile)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return err
+	var templates []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&templates); err != nil {
+		return "", err
 	}
 
-	log.Infof("Scan results exported to: %s", outputFile)
-	return nil
+	for _, template := range templates {
+		name, ok := template["name"].(string)
+		if !ok || name != "Detailed Vulnerabilities By Plugin" {
+			continue
+		}
+
+		id := template["id"]
+		switch v := id.(type) {
+		case float64:
+			return fmt.Sprintf("%.0f", v), nil
+		case string:
+			return v, nil
+		default:
+			return "", fmt.Errorf("unexpected type for template ID: %T", v)
+		}
+
+	}
+	return "", fmt.Errorf("template 'Detailed Vulnerabilities By Plugin' not found")
 }
 
 func createInsecureClient() *http.Client {
@@ -570,7 +698,7 @@ func (n *Nessus) getDroneIP() (string, error) {
 }
 
 func (n *Nessus) discoveryScan() (string, error) {
-	log.Info("Running discovery scan")
+	logging.InfoLogger.Printf("Running discovery scan")
 
 	cmd := fmt.Sprintf("sudo nmap --exclude %s -T4 -n -sn %s -PE -PP -PM -PO --min-parallelism 100 --max-parallelism 256 -oG -",
 		n.droneIP, n.targetsList)
@@ -608,7 +736,8 @@ func (n *Nessus) Deploy() error {
 	if err := n.monitorScan(); err != nil {
 		return err
 	}
-	return n.exportScan()
+	_, err := n.exportScan()
+	return err
 }
 
 func (n *Nessus) Create() error {
@@ -625,7 +754,8 @@ func (n *Nessus) Launch() error {
 	if err := n.monitorScan(); err != nil {
 		return err
 	}
-	return n.exportScan()
+	_, err := n.exportScan()
+	return err
 }
 
 func (n *Nessus) Pause() error {
@@ -639,16 +769,19 @@ func (n *Nessus) Resume() error {
 	if err := n.monitorScan(); err != nil {
 		return err
 	}
-	return n.exportScan()
+	_, err := n.exportScan()
+	return err
 }
 
 func (n *Nessus) Monitor() error {
 	if err := n.monitorScan(); err != nil {
 		return err
 	}
-	return n.exportScan()
+	_, err := n.exportScan()
+	return err
 }
 
 func (n *Nessus) Export() error {
-	return n.exportScan()
+	_, err := n.exportScan()
+	return err
 }

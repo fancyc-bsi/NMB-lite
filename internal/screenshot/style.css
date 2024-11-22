@@ -1,0 +1,42 @@
+body {
+    background-color: #1e1e1e;  /* Dark background for a terminal feel */
+    color: #dcdcdc;  /* Light gray text color to mimic terminal output */
+    font-family: 'Fira Code', 'Source Code Pro', 'JetBrains Mono', monospace;
+    font-size: 14px;  /* Consistent font size across the page */
+    padding: 20px;
+    margin: 0;
+    width: 800px;
+}
+
+.content {
+    white-space: pre-wrap;
+    border: 1px solid #444;  /* Slightly lighter border for a more subtle look */
+    border-radius: 8px;
+    padding: 16px;
+    background-color: #2a2a2a;  /* Darker background to differentiate from the body */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.7);  /* More pronounced shadow for depth */
+    margin: 0;
+}
+
+.highlight {
+    color: #ffa600;  /* Bright yellow to maintain 'pop' for highlighted words */
+    font-weight: bold;
+    background-color: #333333;  /* Darker background for the highlighted word to contrast */
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.command-note {
+    background-color: #252525;  /* Slightly lighter than the content background */
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    color: #e0e0e0;  /* Lighter text for better readability */
+}
+
+.command-note pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 12px;  /* Smaller text for command notes */
+    margin: 0;
+}

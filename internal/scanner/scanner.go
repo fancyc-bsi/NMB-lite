@@ -98,7 +98,7 @@ func (s *Scanner) ExecuteScan(plugin config.Plugin, hostFinding nessus.Finding, 
 
 	output, err := executeCommand(command, s.RemoteExec)
 	if err != nil {
-		logging.ErrorLogger.Printf("[x] Command failed: %v, Command: %s", err, command)
+		logging.ErrorLogger.Printf("Command failed: %v, Command: %s", err, command)
 		s.recordScanResult(hostFinding, plugin, command, "Command Failed", output)
 		return false
 	}
@@ -125,7 +125,7 @@ func (s *Scanner) handleSuccessfulScan(finding nessus.Finding, plugin config.Plu
 	pluginNameHash := md5.Sum([]byte(strings.ToLower(finding.Name)))
 	screenshotPath := fmt.Sprintf("%s.png", fmt.Sprintf("%x", pluginNameHash))
 
-	screenshot.Take(s.ProjectFolder, screenshotPath, output, plugin.VerifyWords)
+	screenshot.Take(s.ProjectFolder, screenshotPath, output, plugin.VerifyWords, command)
 
 	s.recordScanResult(finding, plugin, command, "Verified", output, filepath.Join(s.ProjectFolder, screenshotPath))
 }

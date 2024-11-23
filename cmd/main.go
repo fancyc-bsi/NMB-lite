@@ -1,227 +1,78 @@
-// main.go
 package main
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/fatih/color"
-
+	"NMB/internal/api"
 	"NMB/internal/args"
-	"NMB/internal/config"
-	"NMB/internal/logging"
-	"NMB/internal/nessus"
-	NessusController "NMB/internal/nessus-controller"
-	"NMB/internal/remote"
-	"NMB/internal/render"
-	"NMB/internal/report"
-	"NMB/internal/scanner"
-	"NMB/internal/workerpool"
+	"NMB/internal/engine"
+	"embed"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
 )
 
+//go:embed ui
+var uiBinary embed.FS
+
 func main() {
-	logging.Init()
-	defer func() {
-		if r := recover(); r != nil {
-			logging.ErrorLogger.Printf("Unexpected error: %v", r)
-			os.Exit(1)
-		}
-	}()
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		// Start the API server in a goroutine
+		go func() {
+			server := api.NewServer()
+			if err := server.Run(); err != nil {
+				panic("Failed to start API server: " + err.Error())
+			}
+		}()
 
-	parsedArgs := args.ParseArgs()
-
-	// If Nessus controller mode is specified, handle it separately
-	if parsedArgs.NessusMode != "" {
-		handleNessusController(parsedArgs)
-		return
-	}
-
-	// Original NMB functionality
-	RunNMB(parsedArgs)
-}
-
-func handleNessusController(parsedArgs *args.Args) {
-	validateNessusArgs(parsedArgs)
-
-	// Initialize Nessus controller
-	controller, err := NessusController.New(
-		parsedArgs.RemoteHost,
-		parsedArgs.RemoteUser,
-		parsedArgs.RemotePass,
-		parsedArgs.ProjectName,
-		parsedArgs.TargetsFile,
-		getExcludeFiles(parsedArgs),
-		parsedArgs.Discovery,
-	)
-	if err != nil {
-		logging.ErrorLogger.Fatalf("Failed to initialize Nessus controller: %v", err)
-	}
-
-	// Execute the requested operation
-	var execErr error
-	switch parsedArgs.NessusMode {
-	case "deploy":
-		execErr = controller.Deploy()
-	case "create":
-		execErr = controller.Create()
-	case "launch":
-		execErr = controller.Launch()
-	case "pause":
-		execErr = controller.Pause()
-	case "resume":
-		execErr = controller.Resume()
-	case "monitor":
-		execErr = controller.Monitor()
-	case "export":
-		execErr = controller.Export()
-	default:
-		logging.ErrorLogger.Fatalf("Invalid Nessus mode: %s", parsedArgs.NessusMode)
-	}
-
-	if execErr != nil {
-		logging.ErrorLogger.Fatalf("Failed to execute Nessus %s mode: %v", parsedArgs.NessusMode, execErr)
-	}
-
-	logging.SuccessLogger.Printf("Successfully completed Nessus %s operation", parsedArgs.NessusMode)
-}
-
-func validateNessusArgs(args *args.Args) {
-	if args.RemoteHost == "" {
-		logging.ErrorLogger.Fatal("Remote host (-remote) is required for Nessus controller operations")
-	}
-	if args.RemoteUser == "" {
-		logging.ErrorLogger.Fatal("Remote user (-user) is required for Nessus controller operations")
-	}
-	if args.RemotePass == "" {
-		logging.ErrorLogger.Fatal("Remote password (-password) is required for Nessus controller operations")
-	}
-	if args.ProjectName == "" {
-		logging.ErrorLogger.Fatal("Project name (-name) is required for Nessus controller operations")
-	}
-
-	// Validate mode-specific requirements
-	switch args.NessusMode {
-	case "deploy", "create":
-		if args.TargetsFile == "" {
-			logging.ErrorLogger.Fatal("Targets file (-targets) is required for deploy/create operations")
-		}
-	}
-}
-
-func getExcludeFiles(args *args.Args) []string {
-	var excludeFiles []string
-	if args.ExcludeFile != "" {
-		excludeFiles = append(excludeFiles, args.ExcludeFile)
-	}
-	return excludeFiles
-}
-
-func printSupportedPlugins(supportedPlugins []string) {
-	if len(supportedPlugins) == 0 {
-		fmt.Println("No supported plugins found.")
-		return
-	}
-
-	// Styling for headers and plugin lists
-	header := color.New(color.FgHiGreen, color.Bold).SprintfFunc()
-	pluginItem := color.New(color.FgHiBlue).SprintfFunc()
-	divider := strings.Repeat("=", 50)
-
-	// Print header
-	fmt.Println(divider)
-	fmt.Println(header("Supported Plugins List"))
-	fmt.Println(divider)
-
-	// Print plugins
-	for i, plugin := range supportedPlugins {
-		fmt.Printf("%s %s\n", pluginItem("[%d]", i+1), plugin)
-	}
-
-	fmt.Println(divider)
-}
-
-func RunNMB(parsedArgs *args.Args) {
-	// Validate required args for NMB mode
-	if parsedArgs.NessusFilePath == "" || parsedArgs.NessusFilePath == "path/to/nessus.csv" {
-		logging.ErrorLogger.Fatal("Nessus file path (-nessus) is required for NMB operation")
-	}
-
-	// Load configuration
-	var cfg config.Config
-	if parsedArgs.ConfigFilePath != "" {
-		if _, err := os.Stat(parsedArgs.ConfigFilePath); os.IsNotExist(err) {
-			logging.ErrorLogger.Fatalf("Config file %s not found", parsedArgs.ConfigFilePath)
-		}
-		cfg = config.LoadConfigFromFile(parsedArgs.ConfigFilePath)
-		logging.InfoLogger.Println("Using provided config file")
-	} else {
-		cfg = config.LoadEmbeddedConfig()
-		logging.InfoLogger.Println("Using embedded config")
-	}
-
-	// Create project folder if it doesn't exist
-	if err := os.MkdirAll(parsedArgs.ProjectFolder, 0755); err != nil {
-		logging.ErrorLogger.Fatalf("Failed to create project folder: %v", err)
-	}
-
-	findings, pluginData, err := nessus.ParseCSV(parsedArgs.NessusFilePath)
-	if err != nil {
-		logging.ErrorLogger.Fatalf("Failed to parse Nessus CSV: %v", err)
-	}
-
-	report := &report.Report{
-		ProjectFolder: parsedArgs.ProjectFolder,
-	}
-	report.SupportedPlugins, report.MissingPlugins = nessus.GetSupportedAndMissingPlugins(findings, cfg.Plugins)
-
-	printSupportedPlugins(report.SupportedPlugins)
-
-	var remoteExec *remote.RemoteExecutor
-	if parsedArgs.RemoteHost != "" {
-		var err error
-		remoteExec, err = remote.NewRemoteExecutor(
-			parsedArgs.RemoteHost,
-			parsedArgs.RemoteUser,
-			parsedArgs.RemotePass,
-			parsedArgs.RemoteKey,
-		)
+		// Unpack and execute the embedded UI binary
+		err := unpackAndRunUI()
 		if err != nil {
-			logging.ErrorLogger.Fatalf("Failed to initialize remote executor: %v", err)
+			panic("Failed to start UI: " + err.Error())
 		}
-		defer remoteExec.Close()
-		logging.InfoLogger.Printf("Connected to remote host: %s", parsedArgs.RemoteHost)
+
+		return
 	}
 
-	scn := scanner.Scanner{
-		Config:        cfg,
-		Findings:      findings,
-		PluginData:    pluginData,
-		ProjectFolder: parsedArgs.ProjectFolder,
-		Report:        report,
-		RemoteExec:    remoteExec,
+	// Handle CLI mode
+	parsedArgs := args.ParseArgs()
+	if parsedArgs.NessusMode != "" {
+		engine.HandleNessusController(parsedArgs)
+		return
 	}
 
-	workerpool.StartWorkerPool(parsedArgs.NumWorkers, findings, scn.RunScans)
-
-	generateAndSaveReport(report, parsedArgs.ProjectFolder)
+	engine.RunNMB(parsedArgs)
 }
 
-func generateAndSaveReport(report *report.Report, projectFolder string) {
-	if err := report.Generate(); err != nil {
-		logging.ErrorLogger.Fatalf("Failed to generate report: %v", err)
-	}
-
-	renderedContent, err := render.Generate(report)
+// Unpack and execute the UI binary
+func unpackAndRunUI() error {
+	// Define the temporary location for the UI binary
+	tempDir := "/tmp/nmb_ui"
+	err := os.MkdirAll(tempDir, os.ModePerm)
 	if err != nil {
-		logging.ErrorLogger.Fatalf("Failed to render report: %v", err)
+		return err
 	}
 
-	reportFilePath := filepath.Join(projectFolder, "NMB_scan_report.html")
-	if err := os.WriteFile(reportFilePath, []byte(renderedContent), 0644); err != nil {
-		logging.ErrorLogger.Fatalf("Failed to write rendered report: %v", err)
+	// Extract the UI binary from the embed.FS into the temporary directory
+	uiData, err := uiBinary.ReadFile("ui")
+	if err != nil {
+		return err
 	}
 
-	logging.InfoLogger.Printf("Report generated at %s", reportFilePath)
+	// Create the UI binary in the temporary directory
+	uiBinaryPath := filepath.Join(tempDir, "ui")
+	err = ioutil.WriteFile(uiBinaryPath, uiData, 0755)
+	if err != nil {
+		return err
+	}
+
+	// Run the UI binary
+	cmd := exec.Command(uiBinaryPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	return cmd.Wait()
 }

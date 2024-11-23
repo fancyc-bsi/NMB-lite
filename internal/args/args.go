@@ -26,6 +26,9 @@ type Args struct {
 	ExcludeFile string
 	Discovery   bool
 	ProjectName string
+
+	// Plugin manager specific flags
+	Plugin bool
 }
 
 func ParseArgs() *Args {
@@ -57,6 +60,9 @@ func ParseArgs() *Args {
 	flag.StringVar(&args.ExcludeFile, "exclude", "", "Path to exclude targets file")
 	flag.BoolVar(&args.Discovery, "discovery", false, "Enable host discovery scan")
 	flag.StringVar(&args.ProjectName, "name", "", "Project name for the scan")
+
+	// plugin manager
+	flag.BoolVar(&args.Plugin, "plugin", false, "Enable plugin manager mode")
 
 	// Custom usage message
 	flag.Usage = customUsage

@@ -33,8 +33,8 @@ func getWkHtmlPaths() (wkhtmltopdfPath, wkhtmltoimagePath string, err error) {
 		wkhtmltoimagePath = `C:\Program Files\wkhtmltopdf\bin\wkhtmltoimage.exe`
 	default:
 		// Default behavior for other OS (Linux/macOS)
-		wkhtmltopdfPath = "wkhtmltopdf"
-		wkhtmltoimagePath = "wkhtmltoimage"
+		wkhtmltopdfPath = "/usr/bin/wkhtmltopdf"
+		wkhtmltoimagePath = "/usr/bin/wkhtmltoimage"
 	}
 
 	// Check if the file exists

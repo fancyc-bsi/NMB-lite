@@ -1,8 +1,12 @@
+// internal/logging/logging.go
 package logging
 
 import (
+	websocket "NMB/internal/ws"
+	"io"
 	"log"
 	"os"
+	"sync"
 )
 
 var (
@@ -10,6 +14,7 @@ var (
 	WarningLogger *log.Logger
 	ErrorLogger   *log.Logger
 	SuccessLogger *log.Logger
+	once          sync.Once
 )
 
 const (
@@ -20,19 +25,65 @@ const (
 	SuccessColor = "\033[32m" // green
 )
 
-func Init() {
-	file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("Failed to open log file: %v", err)
+type WebSocketWriter struct {
+	msgType string
+	writer  io.Writer
+}
+
+func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
+	// Strip ANSI color codes from the message
+	message := string(p)
+	// Remove the prefix timestamp that's added by the logger
+	if len(message) > 0 {
+		websocket.GetInstance().BroadcastMessage(w.msgType, message)
 	}
+	return w.writer.Write(p)
+}
 
-	InfoLogger = log.New(file, InfoColor+"[-] "+ResetColor, 0)
-	WarningLogger = log.New(file, WarningColor+"[!] "+ResetColor, 0)
-	ErrorLogger = log.New(file, ErrorColor+"[x] "+ResetColor, 0)
-	SuccessLogger = log.New(file, SuccessColor+"[+] "+ResetColor, 0)
+func Init() {
+	once.Do(func() {
+		// Create writers
+		infoWriter := &WebSocketWriter{msgType: "info", writer: os.Stdout}
+		warningWriter := &WebSocketWriter{msgType: "warning", writer: os.Stdout}
+		errorWriter := &WebSocketWriter{msgType: "error", writer: os.Stderr}
+		successWriter := &WebSocketWriter{msgType: "success", writer: os.Stdout}
 
-	InfoLogger.SetOutput(os.Stdout)
-	WarningLogger.SetOutput(os.Stdout)
-	ErrorLogger.SetOutput(os.Stdout)
-	SuccessLogger.SetOutput(os.Stdout)
+		// Initialize loggers
+		InfoLogger = log.New(infoWriter, InfoColor+"[-] "+ResetColor, log.Ldate|log.Ltime)
+		WarningLogger = log.New(warningWriter, WarningColor+"[!] "+ResetColor, log.Ldate|log.Ltime)
+		ErrorLogger = log.New(errorWriter, ErrorColor+"[x] "+ResetColor, log.Ldate|log.Ltime)
+		SuccessLogger = log.New(successWriter, SuccessColor+"[+] "+ResetColor, log.Ldate|log.Ltime)
+	})
+}
+
+// GetInfoLogger returns the InfoLogger, initializing it if necessary
+func GetInfoLogger() *log.Logger {
+	if InfoLogger == nil {
+		Init()
+	}
+	return InfoLogger
+}
+
+// GetWarningLogger returns the WarningLogger, initializing it if necessary
+func GetWarningLogger() *log.Logger {
+	if WarningLogger == nil {
+		Init()
+	}
+	return WarningLogger
+}
+
+// GetErrorLogger returns the ErrorLogger, initializing it if necessary
+func GetErrorLogger() *log.Logger {
+	if ErrorLogger == nil {
+		Init()
+	}
+	return ErrorLogger
+}
+
+// GetSuccessLogger returns the SuccessLogger, initializing it if necessary
+func GetSuccessLogger() *log.Logger {
+	if SuccessLogger == nil {
+		Init()
+	}
+	return SuccessLogger
 }

@@ -5,3 +5,7 @@ app.log
 targets.txt
 nmb.exe
 evidence/
+node_modules/
+dist/
+build/
+ui

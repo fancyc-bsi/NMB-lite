@@ -250,19 +250,6 @@ const ScanForm = () => {
           </Grid>
 
           <Grid item xs={12}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.discovery}
-                  onChange={handleChange}
-                  name="discovery"
-                />
-              }
-              label="Discovery Mode"
-            />
-          </Grid>
-
-          <Grid item xs={12}>
             <Button
               type="submit"
               variant="contained"

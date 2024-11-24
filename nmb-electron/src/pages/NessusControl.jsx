@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -26,10 +26,63 @@ import {
   Folder,
   MonitorUp,
   UploadCloud,
-  Rocket
+  Rocket,
+  Save
 } from 'lucide-react';
 import nmbApi from '../api/nmbApi';
 import LogViewer from '../components/LogViewer/LogViewer';
+
+// Define field requirements for each mode
+const MODE_FIELDS = {
+  create: ['projectName', 'targetsFile'],
+  deploy: ['projectName', 'targetsFile', 'discovery'],
+  start: ['projectName'],
+  stop: ['projectName'],
+  pause: ['projectName'],
+  resume: ['projectName'],
+  monitor: ['projectName'],
+  launch: ['projectName', 'targetsFile'],
+};
+
+// Field configurations
+const FIELD_CONFIG = {
+  projectName: {
+    label: 'Project/Scan Name',
+    type: 'text',
+    required: true,
+  },
+  targetsFile: {
+    label: 'Targets File',
+    type: 'file',
+    required: true,
+    browsable: true,
+  },
+  remoteHost: {
+    label: 'Remote Host',
+    type: 'text',
+    group: 'remote',
+  },
+  remoteUser: {
+    label: 'Remote User',
+    type: 'text',
+    group: 'remote',
+  },
+  remotePass: {
+    label: 'Remote Password',
+    type: 'password',
+    group: 'remote',
+  },
+  remoteKey: {
+    label: 'SSH Key File',
+    type: 'file',
+    browsable: true,
+    group: 'remote',
+  },
+  discovery: {
+    label: 'Discovery Mode',
+    type: 'switch',
+  },
+};
 
 const NessusControl = () => {
   const [controlData, setControlData] = useState({
@@ -37,6 +90,7 @@ const NessusControl = () => {
     remoteHost: '',
     remoteUser: '',
     remotePass: '',
+    remoteKey: '',
     projectName: '',
     targetsFile: '',
     projectFolder: '',
@@ -51,6 +105,14 @@ const NessusControl = () => {
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [requiredFields, setRequiredFields] = useState([]);
+
+  // Update required fields when mode changes
+  useEffect(() => {
+    if (controlData.nessusMode) {
+      setRequiredFields(MODE_FIELDS[controlData.nessusMode] || []);
+    }
+  }, [controlData.nessusMode]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -68,7 +130,7 @@ const NessusControl = () => {
         throw new Error('Electron IPC not available');
       }
 
-      const channel = type === 'project' ? 'select-directory' : 'select-file';
+      const channel = type === 'directory' ? 'select-directory' : 'select-file';
       window.electron.ipcRenderer.send(channel);
       
       const result = await new Promise((resolve) => {
@@ -79,9 +141,9 @@ const NessusControl = () => {
 
       if (result) {
         const fieldMap = {
-          targets: 'targetsFile',
-          project: 'projectFolder',
-          exclude: 'excludeFile'
+          file: 'targetsFile',
+          directory: 'projectFolder',
+          key: 'remoteKey'
         };
 
         setControlData(prev => ({
@@ -100,10 +162,22 @@ const NessusControl = () => {
     }
   };
 
+  const validateForm = () => {
+    const errors = requiredFields
+      .filter(field => !controlData[field])
+      .map(field => `${FIELD_CONFIG[field].label} is required`);
+    
+    if (errors.length > 0) {
+      throw new Error(errors.join('\n'));
+    }
+    return true;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     try {
+      validateForm();
       const response = await nmbApi.controlNessus(controlData);
       setStatus({
         open: true,
@@ -133,6 +207,110 @@ const NessusControl = () => {
     </Button>
   );
 
+  const renderField = (fieldName) => {
+    const config = FIELD_CONFIG[fieldName];
+    if (!config) return null;
+
+    switch (config.type) {
+      case 'switch':
+        return (
+          <FormControlLabel
+            control={
+              <Switch
+                checked={controlData[fieldName]}
+                onChange={handleChange}
+                name={fieldName}
+                disabled={isLoading}
+              />
+            }
+            label={config.label}
+          />
+        );
+
+      case 'file':
+        return (
+          <TextField
+            fullWidth
+            margin="normal"
+            label={config.label}
+            name={fieldName}
+            value={controlData[fieldName]}
+            onChange={handleChange}
+            required={config.required}
+            InputProps={config.browsable ? {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton 
+                    onClick={() => handleBrowseFile(fieldName === 'remoteKey' ? 'key' : 'file')}
+                    disabled={isLoading}
+                  >
+                    <Folder />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            } : undefined}
+          />
+        );
+
+      default:
+        return (
+          <TextField
+            fullWidth
+            margin="normal"
+            label={config.label}
+            name={fieldName}
+            type={config.type}
+            value={controlData[fieldName]}
+            onChange={handleChange}
+            required={config.required}
+            disabled={isLoading}
+          />
+        );
+    }
+  };
+
+  const getVisibleFields = () => {
+    if (!controlData.nessusMode) return [];
+    
+    const modeFields = MODE_FIELDS[controlData.nessusMode] || [];
+    const remoteFields = ['remoteHost', 'remoteUser', 'remotePass', 'remoteKey'];
+    
+    return [
+      ...modeFields,
+      ...remoteFields
+    ];
+  };
+
+  const renderFormFields = () => {
+    const visibleFields = getVisibleFields();
+    const remoteFields = visibleFields.filter(field => FIELD_CONFIG[field]?.group === 'remote');
+    const otherFields = visibleFields.filter(field => FIELD_CONFIG[field]?.group !== 'remote');
+
+    return (
+      <>
+        {otherFields.map(fieldName => (
+          <Box key={fieldName} sx={{ mb: 2 }}>
+            {renderField(fieldName)}
+          </Box>
+        ))}
+
+        {remoteFields.length > 0 && (
+          <>
+            <Divider sx={{ my: 3 }} />
+            <Typography variant="subtitle1" gutterBottom sx={{ mb: 2 }}>
+              Remote Configuration
+            </Typography>
+            {remoteFields.map(fieldName => (
+              <Box key={fieldName} sx={{ mb: 2 }}>
+                {renderField(fieldName)}
+              </Box>
+            ))}
+          </>
+        )}
+      </>
+    );
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" sx={{ mb: 3 }}>Nessus Controller</Typography>
@@ -142,46 +320,17 @@ const NessusControl = () => {
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>Quick Actions</Typography>
             <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-              <QuickActionButton 
-                mode="start" 
-                icon={Play} 
-                label="Start Scan" 
-              />
-              <QuickActionButton 
-                mode="pause" 
-                icon={Pause} 
-                color="warning" 
-                label="Pause Scan" 
-              />
-              <QuickActionButton 
-                mode="resume" 
-                icon={RefreshCw} 
-                color="info" 
-                label="Resume Scan" 
-              />
+              <QuickActionButton mode="start" icon={Play} label="Start Scan" />
+              <QuickActionButton mode="pause" icon={Pause} color="warning" label="Pause Scan" />
+              <QuickActionButton mode="resume" icon={RefreshCw} color="info" label="Resume Scan" />
             </Box>
             
             <Divider sx={{ my: 2 }} />
             
             <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-              <QuickActionButton 
-                mode="deploy" 
-                icon={UploadCloud} 
-                color="secondary" 
-                label="Deploy" 
-              />
-              <QuickActionButton 
-                mode="monitor" 
-                icon={MonitorUp} 
-                color="info" 
-                label="Monitor" 
-              />
-              <QuickActionButton 
-                mode="launch" 
-                icon={Rocket} 
-                color="success" 
-                label="Launch" 
-              />
+              <QuickActionButton mode="deploy" icon={UploadCloud} color="secondary" label="Deploy" />
+              <QuickActionButton mode="monitor" icon={MonitorUp} color="info" label="Monitor" />
+              <QuickActionButton mode="launch" icon={Rocket} color="success" label="Launch" />
             </Box>
             
             <FormControl fullWidth sx={{ mb: 2 }}>
@@ -192,27 +341,16 @@ const NessusControl = () => {
                 onChange={handleChange}
                 label="Mode"
               >
+                <MenuItem value="create">Create</MenuItem>
+                <MenuItem value="deploy">Deploy</MenuItem>
                 <MenuItem value="start">Start</MenuItem>
                 <MenuItem value="pause">Pause</MenuItem>
                 <MenuItem value="resume">Resume</MenuItem>
                 <MenuItem value="stop">Stop</MenuItem>
-                <MenuItem value="deploy">Deploy</MenuItem>
                 <MenuItem value="monitor">Monitor</MenuItem>
-                <MenuItem value="create">Create</MenuItem>
                 <MenuItem value="launch">Launch</MenuItem>
               </Select>
             </FormControl>
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={controlData.discovery}
-                  onChange={handleChange}
-                  name="discovery"
-                />
-              }
-              label="Discovery Mode"
-            />
           </Paper>
         </Grid>
 
@@ -220,84 +358,7 @@ const NessusControl = () => {
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>Configuration</Typography>
             <form onSubmit={handleSubmit}>
-              <TextField
-                fullWidth
-                margin="normal"
-                label="Remote Host"
-                name="remoteHost"
-                value={controlData.remoteHost}
-                onChange={handleChange}
-              />
-              
-              <TextField
-                fullWidth
-                margin="normal"
-                label="Remote User"
-                name="remoteUser"
-                value={controlData.remoteUser}
-                onChange={handleChange}
-              />
-              
-              <TextField
-                fullWidth
-                margin="normal"
-                type="password"
-                label="Remote Password"
-                name="remotePass"
-                value={controlData.remotePass}
-                onChange={handleChange}
-              />
-              
-              <TextField
-                fullWidth
-                margin="normal"
-                label="Project Name"
-                name="projectName"
-                value={controlData.projectName}
-                onChange={handleChange}
-              />
-              
-              <TextField
-                fullWidth
-                margin="normal"
-                label="Project Folder"
-                name="projectFolder"
-                value={controlData.projectFolder}
-                onChange={handleChange}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton 
-                        onClick={() => handleBrowseFile('project')}
-                        disabled={isLoading}
-                      >
-                        <Folder />
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              
-              <TextField
-                fullWidth
-                margin="normal"
-                label="Targets File"
-                name="targetsFile"
-                value={controlData.targetsFile}
-                onChange={handleChange}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton 
-                        onClick={() => handleBrowseFile('targets')}
-                        disabled={isLoading}
-                      >
-                        <Folder />
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
+              {renderFormFields()}
               
               <Button
                 type="submit"
@@ -305,8 +366,8 @@ const NessusControl = () => {
                 color="primary"
                 fullWidth
                 sx={{ mt: 2 }}
-                startIcon={<Upload />}
-                disabled={isLoading}
+                startIcon={<Save />}
+                disabled={isLoading || !controlData.nessusMode}
               >
                 Apply Configuration
               </Button>

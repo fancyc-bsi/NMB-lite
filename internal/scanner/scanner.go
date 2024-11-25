@@ -38,7 +38,7 @@ func (s *Scanner) RunScans(wg *sync.WaitGroup, jobs <-chan nessus.Finding) {
 	defer wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			logging.GetErrorLogger().Printf("Recovered from panic: %v", r)
+			logging.ErrorLogger.Printf("Recovered from panic: %v", r)
 		}
 	}()
 
@@ -94,17 +94,17 @@ func (s *Scanner) verifyFinding(plugin config.Plugin, finding nessus.Finding) bo
 
 func (s *Scanner) ExecuteScan(plugin config.Plugin, hostFinding nessus.Finding, retry bool) bool {
 	command := buildCommand(plugin, hostFinding, retry)
-	logging.GetInfoLogger().Printf("Testing: %s:%s for %s", hostFinding.Host, hostFinding.Port, hostFinding.Name)
+	logging.InfoLogger.Printf("Testing: %s:%s for %s", hostFinding.Host, hostFinding.Port, hostFinding.Name)
 
 	output, err := executeCommand(command, s.RemoteExec)
 	if err != nil {
-		logging.GetErrorLogger().Printf("Command failed: %v, Command: %s", err, command)
+		logging.ErrorLogger.Printf("Command failed: %v, Command: %s", err, command)
 		s.recordScanResult(hostFinding, plugin, command, "Command Failed", output)
 		return false
 	}
 
 	if plugin.ScanType == nmapScanType && !isPortOpen(output, hostFinding.Port) {
-		logging.GetWarningLogger().Printf("Port %s closed: %s:%s for %s",
+		logging.WarningLogger.Printf("Port %s closed: %s:%s for %s",
 			hostFinding.Port, hostFinding.Host, hostFinding.Port, hostFinding.Name)
 		s.recordScanResult(hostFinding, plugin, command, "Port Closed", output)
 		return false
@@ -115,14 +115,14 @@ func (s *Scanner) ExecuteScan(plugin config.Plugin, hostFinding nessus.Finding, 
 		return true
 	}
 
-	logging.GetErrorLogger().Printf("Verification failed: %s (%s:%s)",
+	logging.ErrorLogger.Printf("Verification failed: %s (%s:%s)",
 		hostFinding.Name, hostFinding.Host, hostFinding.Port)
 	s.recordScanResult(hostFinding, plugin, command, "Verification Failed", output)
 	return false
 }
 
 func (s *Scanner) handleSuccessfulScan(finding nessus.Finding, plugin config.Plugin, command, output string) {
-	logging.GetSuccessLogger().Printf("Verified: %s (%s:%s)", finding.Name, finding.Host, finding.Port)
+	logging.SuccessLogger.Printf("Verified: %s (%s:%s)", finding.Name, finding.Host, finding.Port)
 
 	pluginNameHash := md5.Sum([]byte(strings.ToLower(finding.Name)))
 	screenshotPath := fmt.Sprintf("%s.png", fmt.Sprintf("%x", pluginNameHash))

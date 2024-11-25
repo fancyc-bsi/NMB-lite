@@ -31,6 +31,21 @@ type ScanRequest struct {
 	Discovery      bool   `json:"discovery"`
 }
 
+type Settings struct {
+	DefaultProjectFolder string  `json:"defaultProjectFolder"`
+	SSHKeyFile           string  `json:"sshKeyFile"`
+	MaxWorkers           int     `json:"maxWorkers"`
+	AutoStart            bool    `json:"autoStart"`
+	Telemetry            bool    `json:"telemetry"`
+	Drones               []Drone `json:"drones"`
+}
+
+type Drone struct {
+	Name string `json:"name"`
+	Host string `json:"host"`
+	User string `json:"user"`
+}
+
 type Server struct {
 	router    *gin.Engine
 	wsManager *websocket.WebSocketManager
@@ -132,6 +147,28 @@ func (s *Server) setupRoutes() {
 	s.router.POST("/api/scan", s.handleScan)
 	s.router.GET("/api/supported-plugins", s.handleGetSupportedPlugins)
 	s.router.POST("/api/nessus-controller", s.handleNessusController)
+	s.router.GET("/api/settings", s.handleGetSettings)
+	s.router.POST("/api/settings", s.handleSaveSettings)
+}
+
+func (s *Server) handleGetSettings(c *gin.Context) {
+	settings := Settings{
+		DefaultProjectFolder: "/evidence",
+		MaxWorkers:           4,
+		AutoStart:            true,
+	}
+
+	c.JSON(http.StatusOK, settings)
+}
+
+func (s *Server) handleSaveSettings(c *gin.Context) {
+	var settings Settings
+	if err := c.BindJSON(&settings); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
 }
 
 func (s *Server) handleScan(c *gin.Context) {

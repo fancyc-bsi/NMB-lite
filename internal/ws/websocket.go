@@ -155,7 +155,7 @@ func cleanMessage(message string) string {
 func (wsm *WebSocketManager) BroadcastMessage(msgType, message string) {
 	cleanedMessage := cleanMessage(message)
 
-	log.Printf("Broadcasting message: %s - %s", msgType, cleanedMessage)
+	// log.Printf("Broadcasting message: %s - %s", msgType, cleanedMessage)
 	wsm.broadcast <- LogMessage{
 		Type:    msgType,
 		Message: cleanedMessage,

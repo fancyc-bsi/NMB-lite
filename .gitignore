@@ -8,4 +8,5 @@ evidence/
 node_modules/
 dist/
 build/
+bin/
 ui

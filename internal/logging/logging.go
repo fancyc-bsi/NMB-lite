@@ -1,4 +1,3 @@
-// internal/logging/logging.go
 package logging
 
 import (
@@ -31,9 +30,7 @@ type WebSocketWriter struct {
 }
 
 func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
-	// Strip ANSI color codes from the message
 	message := string(p)
-	// Remove the prefix timestamp that's added by the logger
 	if len(message) > 0 {
 		websocket.GetInstance().BroadcastMessage(w.msgType, message)
 	}
@@ -48,11 +45,11 @@ func Init() {
 		errorWriter := &WebSocketWriter{msgType: "error", writer: os.Stderr}
 		successWriter := &WebSocketWriter{msgType: "success", writer: os.Stdout}
 
-		// Initialize loggers
-		InfoLogger = log.New(infoWriter, InfoColor+"[-] "+ResetColor, log.Ldate|log.Ltime)
-		WarningLogger = log.New(warningWriter, WarningColor+"[!] "+ResetColor, log.Ldate|log.Ltime)
-		ErrorLogger = log.New(errorWriter, ErrorColor+"[x] "+ResetColor, log.Ldate|log.Ltime)
-		SuccessLogger = log.New(successWriter, SuccessColor+"[+] "+ResetColor, log.Ldate|log.Ltime)
+		// Initialize loggers with colored prefixes and no timestamps
+		InfoLogger = log.New(infoWriter, InfoColor+"[-]"+ResetColor+" ", 0)
+		WarningLogger = log.New(warningWriter, WarningColor+"[!]"+ResetColor+" ", 0)
+		ErrorLogger = log.New(errorWriter, ErrorColor+"[x]"+ResetColor+" ", 0)
+		SuccessLogger = log.New(successWriter, SuccessColor+"[+]"+ResetColor+" ", 0)
 	})
 }
 

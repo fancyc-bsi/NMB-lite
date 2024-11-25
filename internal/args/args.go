@@ -96,11 +96,14 @@ func customUsage() {
 
 	fmt.Println("\nExamples:")
 	fmt.Println("  NMB Mode:")
-	fmt.Println("    program -nessus scan.csv -project ./output")
-	fmt.Println("    program -n scan.csv -p ./output -w 20")
+	fmt.Println("    nmb -nessus scan.csv -project ./output")
+	fmt.Println("    nmb -n scan.csv -p ./output -w 20")
 
 	fmt.Println("\n  Nessus Controller Mode:")
-	fmt.Println("    program -mode deploy -remote 192.168.1.10 -user admin -password secret -name TestScan -targets hosts.txt")
-	fmt.Println("    program -mode create -remote 192.168.1.10 -user admin -password secret -name TestScan -targets hosts.txt -discovery")
-	fmt.Println("    program -mode launch -remote 192.168.1.10 -user admin -password secret -name TestScan")
+	fmt.Println("    nmb -mode deploy -remote 192.168.1.10 -user admin -password secret -name TestScan -targets hosts.txt")
+	fmt.Println("    nmb -mode create -remote 192.168.1.10 -user admin -password secret -name TestScan -targets hosts.txt -discovery")
+	fmt.Println("    nmb -mode launch -remote 192.168.1.10 -user admin -password secret -name TestScan")
+
+	fmt.Println("\n UI Mode:")
+	fmt.Println("    nmb serve")
 }

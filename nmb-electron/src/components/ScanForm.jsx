@@ -13,13 +13,15 @@ import {
   InputAdornment,
   Divider,
   Grid,
-  CircularProgress
+  CircularProgress,
+  Tooltip
 } from '@mui/material';
-import { Folder, Save, RotateCcw } from 'lucide-react';
-import nmbApi from '../api/nmbApi';
+import { Folder, Save, RotateCcw, Key } from 'lucide-react';
+const nmbApi = (__dirname, 'api', 'nmbApi');
 
-// Storage key for form data
-const STORAGE_KEY = 'scanform_state';
+
+const SCAN_FORM_KEY = 'scanform_state';
+const SETTINGS_KEY = 'nmb_settings';
 
 const ScanForm = () => {
   // Initial state with default values
@@ -38,7 +40,7 @@ const ScanForm = () => {
 
   const [formData, setFormData] = useState(() => {
     // Load saved state from localStorage on component mount
-    const savedState = localStorage.getItem(STORAGE_KEY);
+    const savedState = localStorage.getItem(SCAN_FORM_KEY);
     return savedState ? JSON.parse(savedState) : initialState;
   });
 
@@ -50,9 +52,27 @@ const ScanForm = () => {
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Load default SSH key from settings on mount
+  useEffect(() => {
+    try {
+      const savedSettings = localStorage.getItem(SETTINGS_KEY);
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        if (settings.sshKeyFile && !formData.remoteKey) {
+          setFormData(prev => ({
+            ...prev,
+            remoteKey: settings.sshKeyFile
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error loading SSH key from settings:', error);
+    }
+  }, []);
+
   // Save form data to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+    localStorage.setItem(SCAN_FORM_KEY, JSON.stringify(formData));
   }, [formData]);
 
   const handleChange = (e) => {
@@ -63,7 +83,26 @@ const ScanForm = () => {
     }));
   };
 
-  // File selection handler using window.electron API
+  const useDefaultSSHKey = () => {
+    try {
+      const savedSettings = localStorage.getItem(SETTINGS_KEY);
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        if (settings.sshKeyFile) {
+          setFormData(prev => ({
+            ...prev,
+            remoteKey: settings.sshKeyFile
+          }));
+          showStatus('Default SSH key loaded', 'success');
+        } else {
+          showStatus('No default SSH key found in settings', 'warning');
+        }
+      }
+    } catch (error) {
+      showStatus('Error loading default SSH key', 'error');
+    }
+  };
+
   const handleBrowseFile = async (type) => {
     try {
       setIsLoading(true);
@@ -72,12 +111,9 @@ const ScanForm = () => {
         throw new Error('Electron IPC not available');
       }
 
-      const channel = type === 'nessus' ? 'select-file' : 'select-directory';
-      
-      // Send the request through IPC
+      const channel = type === 'directory' ? 'select-directory' : 'select-file';
       window.electron.ipcRenderer.send(channel);
       
-      // Create a promise to handle the response
       const result = await new Promise((resolve) => {
         window.electron.ipcRenderer.once(`${channel}-reply`, (filePath) => {
           resolve(filePath);
@@ -85,9 +121,15 @@ const ScanForm = () => {
       });
 
       if (result) {
+        const fieldMap = {
+          nessus: 'nessusFilePath',
+          project: 'projectFolder',
+          key: 'remoteKey'
+        };
+
         setFormData(prev => ({
           ...prev,
-          [type === 'nessus' ? 'nessusFilePath' : 'projectFolder']: result
+          [fieldMap[type]]: result
         }));
       }
     } catch (error) {
@@ -236,6 +278,40 @@ const ScanForm = () => {
               disabled={!formData.remoteHost}
             />
           </Grid>
+
+          <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            label="SSH Key File"
+            name="remoteKey"
+            value={formData.remoteKey}
+            onChange={handleChange}
+            disabled={!formData.remoteHost}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title="Browse for SSH key">
+                    <IconButton 
+                      onClick={() => handleBrowseFile('key')}
+                      disabled={isLoading || !formData.remoteHost}
+                      sx={{ mr: 1 }}
+                    >
+                      <Folder />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Use default SSH key">
+                    <IconButton
+                      onClick={useDefaultSSHKey}
+                      disabled={isLoading || !formData.remoteHost}
+                    >
+                      <Key />
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Grid>
 
           <Grid item xs={12} md={6}>
             <TextField

@@ -33,7 +33,6 @@ ipcMain.on('select-file', async (event) => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile'],
       filters: [
-        { name: 'Nessus Files', extensions: ['nessus'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     });

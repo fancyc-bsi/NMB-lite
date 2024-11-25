@@ -39,7 +39,6 @@ const Sidebar = () => {
     { text: 'Dashboard', icon: <Home size={20} />, path: '/' },
     { text: 'Scan Manager', icon: <Scan size={20} />, path: '/scan' },
     { text: 'Nessus Control', icon: <Shield size={20} />, path: '/nessus' },
-    { text: 'Live Monitor', icon: <Activity size={20} />, path: '/monitor' },
     { text: 'Settings', icon: <Settings size={20} />, path: '/settings' },
   ];
 

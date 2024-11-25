@@ -8,6 +8,7 @@ import TopBar from './components/Layout/TopBar';
 import Sidebar from './components/Layout/Sidebar';
 import Dashboard from './pages/Dashboard';
 import ScanPage from './pages/ScanPage';
+import SettingsPage from './pages/SettingsPage';
 import NessusControl from './pages/NessusControl';
 
 const darkTheme = createTheme({
@@ -69,6 +70,7 @@ const App = () => {
               <Route path="/" element={<Dashboard />} />
               <Route path="/scan" element={<ScanPage />} />
               <Route path="/nessus" element={<NessusControl />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </Box>
         </Box>

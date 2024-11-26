@@ -4,6 +4,7 @@ import (
 	"NMB/internal/api"
 	"NMB/internal/args"
 	"NMB/internal/engine"
+	"NMB/internal/logging"
 	"context"
 	"embed"
 	"log"
@@ -25,6 +26,11 @@ type App struct {
 
 func NewApp() *App {
 	return &App{}
+}
+
+func init() {
+	// Initialize the logging system
+	logging.Init()
 }
 
 func (a *App) startup(ctx context.Context) {

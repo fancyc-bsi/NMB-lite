@@ -10,3 +10,7 @@ dist/
 build/
 bin/
 ui
+electron-build/
+nmb-electron/
+package-lock.json
+package.json.md5

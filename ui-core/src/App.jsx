@@ -4,7 +4,6 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import CssBaseline from '@mui/material/CssBaseline';
 import Box from '@mui/material/Box';
-import TopBar from './components/Layout/TopBar';
 import Sidebar from './components/Layout/Sidebar';
 import Dashboard from './pages/Dashboard';
 import ScanPage from './pages/ScanPage';
@@ -53,7 +52,6 @@ const App = () => {
       <CssBaseline />
       <BrowserRouter>
         <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-          <TopBar />
           <Sidebar />
           <Box
             component="main"

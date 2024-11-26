@@ -1,6 +1,6 @@
 {
-    "short_name": "NMB Electron",
-    "name": "NMB Electron Interface",
+    "short_name": "NMB",
+    "name": "NMB Interface",
     "icons": [
       {
         "src": "favicon.ico",

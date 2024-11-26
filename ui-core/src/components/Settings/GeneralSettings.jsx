@@ -79,25 +79,19 @@ const GeneralSettings = () => {
 
   const handleBrowseFile = async (type) => {
     try {
-      if (!window.electron?.ipcRenderer) {
-        throw new Error('Electron IPC not available');
+      let result;
+      if (type === 'folder') {
+        result = await window.go.main.App.SelectDirectory();
+      } else {
+        result = await window.go.main.App.SelectFile("All Files");
       }
-
-      const channel = type === 'folder' ? 'select-directory' : 'select-file';
-      window.electron.ipcRenderer.send(channel);
-      
-      const result = await new Promise((resolve) => {
-        window.electron.ipcRenderer.once(`${channel}-reply`, (filePath) => {
-          resolve(filePath);
-        });
-      });
-
+  
       if (result) {
         const fieldMap = {
           folder: 'defaultProjectFolder',
           key: 'sshKeyFile'
         };
-
+  
         setSettings(prev => ({
           ...prev,
           [fieldMap[type]]: result
@@ -233,19 +227,6 @@ const GeneralSettings = () => {
               onChange={handleChange}
               helperText="Maximum number of concurrent workers"
               inputProps={{ min: 1, max: 32 }}
-            />
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.autoStart}
-                  onChange={handleChange}
-                  name="autoStart"
-                />
-              }
-              label="Auto-start scans when created"
             />
           </Grid>
 

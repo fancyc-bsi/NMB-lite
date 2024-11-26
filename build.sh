@@ -1,32 +1,26 @@
 #!/bin/bash
+set -e
 
-echo "cleaning out the bin directory"
+echo "🚀 Starting optimized build process..."
 
-rm -rf bin
+# Clean up old builds
+echo "🧹 Cleaning up old builds..."
+rm -rf bin/*
+rm -rf ui-core/build
+rm -rf build
 
-cd nmb-electron
+# Optimize React build
+echo "⚡ Optimizing React build..."
+cd ui-core
+GENERATE_SOURCEMAP=false REACT_APP_ENV=production npm run build
+cd ..
 
-# Build the Electron app
-npm run build:all
+# Build for Linux with optimizations
+echo "🐧 Building for Linux..."
+CGO_ENABLED=1 ~/go/bin/wails build -platform linux/amd64 -o ../bin/nmb -ldflags="-s -w"
 
-cd dist
+# Build for Windows with optimizations
+echo "🪟 Building for Windows..."
+CGO_ENABLED=1 GOOS=windows GOARCH=amd64 ~/go/bin/wails build -platform windows/amd64 -o ../bin/nmb.exe -ldflags="-s -w"
 
-mv NMB-Electron-1.0.0.AppImage ../../cmd/ui/linux/ui
-mv "NMB-Electron 1.0.0.exe" ../../cmd/ui/windows/ui.exe
-
-printf "Electron Build completed"
-
-cd ../../
-
-# Build the Go binary
-echo ""
-printf "Building the Go binary"
-echo ""
-# For Windows
-GOOS=windows go build -o bin/nmb.exe ./cmd
-
-# For Linux
-GOOS=linux go build -o bin/nmb ./cmd
-
-echo ""
-printf "Go binary build completed"
+echo "✅ Build complete!"

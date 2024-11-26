@@ -107,26 +107,24 @@ const ScanForm = () => {
     try {
       setIsLoading(true);
       
-      if (!window.electron?.ipcRenderer) {
-        throw new Error('Electron IPC not available');
+      let result;
+      // Call the appropriate Wails function based on type
+      if (type === 'project') {
+        result = await window.go.main.App.SelectDirectory();
+      } else if (type === 'key') {
+        result = await window.go.main.App.SelectFile("SSH Key");
+      } else {
+        // For nessus files or other types
+        result = await window.go.main.App.SelectFile("All Files");
       }
-
-      const channel = type === 'directory' ? 'select-directory' : 'select-file';
-      window.electron.ipcRenderer.send(channel);
-      
-      const result = await new Promise((resolve) => {
-        window.electron.ipcRenderer.once(`${channel}-reply`, (filePath) => {
-          resolve(filePath);
-        });
-      });
-
+  
       if (result) {
         const fieldMap = {
           nessus: 'nessusFilePath',
           project: 'projectFolder',
           key: 'remoteKey'
         };
-
+  
         setFormData(prev => ({
           ...prev,
           [fieldMap[type]]: result

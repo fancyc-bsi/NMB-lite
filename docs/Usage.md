@@ -34,10 +34,12 @@ Examples:
     ./nmb -n nessus-export.csv -p client_name -remote -user <username> -password <password>
     ./nmb -n nessus-export.csv -p client_name -remote 192.168.1.1 -user <username> -key ~/.id_rsa
 
-
   Nessus Controller Mode:
     ./nmb -mode deploy -remote 192.168.1.10 -user admin -password secret -name TestScan -targets hosts.txt
     ./nmb -mode create -remote 192.168.1.10 -user admin -password secret -name TestScan -targets hosts.txt -discovery
     ./nmb -mode launch -remote 192.168.1.10 -user admin -password secret -name TestScan
+
+  UI Mode:
+      nmb serve
 
 ```

@@ -1,4 +1,3 @@
-// src/components/LogViewer/LogViewer.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Paper, Typography, IconButton } from '@mui/material';
 import { RotateCcw, Download, X } from 'lucide-react';
@@ -6,24 +5,39 @@ import { RotateCcw, Download, X } from 'lucide-react';
 const LogViewer = () => {
   const [logs, setLogs] = useState([]);
   const [connected, setConnected] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const wsRef = useRef(null);
   const logContainerRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const pingIntervalRef = useRef(null);
 
   useEffect(() => {
     connectWebSocket();
+    
+    // Cleanup function
     return () => {
-      // Cleanup on unmount
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      cleanupWebSocket();
     };
-  }, []);
+  }, []); // Empty dependency array means this effect runs once on mount
+
+  const cleanupWebSocket = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+  };
 
   const connectWebSocket = () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('WebSocket already connected');
-      return;
-    }
+    // Clean up any existing connection first
+    cleanupWebSocket();
 
     try {
       console.log('Attempting to connect WebSocket...');
@@ -32,21 +46,30 @@ const LogViewer = () => {
       ws.onopen = () => {
         console.log('WebSocket Connected');
         setConnected(true);
-        setReconnectAttempt(0); // Reset reconnect attempts on successful connection
+        setReconnectAttempt(0);
+        
+        // Set up ping interval
+        pingIntervalRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send('ping');
+          }
+        }, 30000);
       };
 
       ws.onclose = (event) => {
         console.log('WebSocket Closed:', event);
         setConnected(false);
-        wsRef.current = null;
         
-        // Implement exponential backoff for reconnection
-        const timeout = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
-        console.log(`Attempting to reconnect in ${timeout}ms`);
-        setTimeout(() => {
-          setReconnectAttempt(prev => prev + 1);
-          connectWebSocket();
-        }, timeout);
+        // Only attempt to reconnect if this is still the current WebSocket
+        if (wsRef.current === ws) {
+          const timeout = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
+          console.log(`Attempting to reconnect in ${timeout}ms`);
+          
+          reconnectTimeoutRef.current = setTimeout(() => {
+            setReconnectAttempt(prev => prev + 1);
+            connectWebSocket();
+          }, timeout);
+        }
       };
 
       ws.onerror = (error) => {
@@ -68,24 +91,15 @@ const LogViewer = () => {
         }
       };
 
-      // Set up ping interval
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send('ping');
-        }
-      }, 30000);
-
       // Store the WebSocket instance
       wsRef.current = ws;
-
-      // Cleanup ping interval when WebSocket closes
-      ws.addEventListener('close', () => clearInterval(pingInterval));
     } catch (error) {
       console.error('Error creating WebSocket:', error);
       setConnected(false);
     }
   };
 
+  // Rest of your component code remains the same...
   const getLogColor = (type) => {
     switch (type) {
       case 'error': return 'error.main';
@@ -111,6 +125,7 @@ const LogViewer = () => {
     URL.revokeObjectURL(url);
   };
 
+  // Return JSX remains the same...
   return (
     <Paper 
       elevation={3} 

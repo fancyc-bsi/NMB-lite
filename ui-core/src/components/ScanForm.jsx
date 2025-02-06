@@ -17,7 +17,7 @@ import {
   Tooltip
 } from '@mui/material';
 import { Folder, Save, RotateCcw, Key } from 'lucide-react';
-const nmbApi = (__dirname, 'api', 'nmbApi');
+import nmbApi from '../api/nmbApi';
 
 
 const SCAN_FORM_KEY = 'scanform_state';
@@ -174,7 +174,7 @@ const ScanForm = () => {
     
     try {
       validateForm();
-      await nmbApi.startScan(formData);
+      const response = await nmbApi.startScan(formData);
       showStatus('Scan started successfully', 'success');
     } catch (error) {
       showStatus(error.message, 'error');

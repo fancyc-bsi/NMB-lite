@@ -12,13 +12,15 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.11.0",
     "lucide-react": "^0.263.1",
-    "recharts": "^2.5.0"
+    "recharts": "^2.5.0",
+    "@heroicons/react": "^1.0.0"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "dev": "react-scripts start"
   },
   "eslintConfig": {
     "extends": [

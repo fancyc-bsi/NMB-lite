@@ -14,17 +14,41 @@ import {
   Divider,
   Grid,
   CircularProgress,
-  Tooltip
+  Tooltip,
+  Autocomplete
 } from '@mui/material';
 import { Folder, Save, RotateCcw, Key } from 'lucide-react';
 import nmbApi from '../api/nmbApi';
 
-
 const SCAN_FORM_KEY = 'scanform_state';
 const SETTINGS_KEY = 'nmb_settings';
+const DRONE_LIST = [
+  "arkanoid", "asteroids", "bagman", "barbarian", "breakout", "civilization",
+  "contra", "crossbow", "defender", "digdug", "doom", "donkeykong", "duckhunt",
+  "galaga", "gauntlet", "gravitar", "journey", "joust", "jumpman", "junglehunt",
+  "kaboom", "karatechamp", "knockout", "kungfu", "megaman", "meltdown", "metalgear",
+  "millipede", "paperboy", "pitfall", "poleposition", "pong", "pooyan", "popeye",
+  "punchout", "qbert", "rampage", "sinistar", "spaceinvaders", "spyhunter",
+  "streetfighter", "tempest", "tron", "wizardry", "beserk", "zaxxon", "zork",
+  "doubledragon", "gorf", "ballblazer", "centipede", "combat", "hangon", "mario",
+  "foodfight", "excitebike", "jinks", "zelda", "frogger", "battlezone", "freeway",
+  "pacman", "tetris", "sonic", "burgertime", "diablo", "lemmings", "quake", "myst",
+  "fzero", "blasteroids", "outrun", "rampart", "castlevania", "ikari", "halo",
+  "simcity", "warcraft", "starwars", "choplifter", "gunfight", "metroid",
+  "ninjagaiden", "iceclimber", "icehockey", "radracer", "battletoads", "gradius",
+  "ninjaturtles", "fdl-aws-1", "hrd-1", "rsi-aws-1", "evi-lite-1", "evi-lite-2",
+  "hrd-lite-1", "trm-lite-1", "brain", "wily", "eggman", "ganon", "goro", "mantis",
+  "sigma", "wario", "blinky", "goomba", "kefka", "bison", "bowser", "kingboo",
+  "clyde", "mewtwo", "koopa", "akuma"
+];
+
+// Default credentials
+const DEFAULT_CREDENTIALS = {
+  username: 'bstg',
+  password: 'BulletH@x'
+};
 
 const ScanForm = () => {
-  // Initial state with default values
   const initialState = {
     nessusFilePath: '',
     projectFolder: '',
@@ -39,7 +63,6 @@ const ScanForm = () => {
   };
 
   const [formData, setFormData] = useState(() => {
-    // Load saved state from localStorage on component mount
     const savedState = localStorage.getItem(SCAN_FORM_KEY);
     return savedState ? JSON.parse(savedState) : initialState;
   });
@@ -52,7 +75,6 @@ const ScanForm = () => {
 
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load default SSH key from settings on mount
   useEffect(() => {
     try {
       const savedSettings = localStorage.getItem(SETTINGS_KEY);
@@ -70,7 +92,6 @@ const ScanForm = () => {
     }
   }, []);
 
-  // Save form data to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem(SCAN_FORM_KEY, JSON.stringify(formData));
   }, [formData]);
@@ -79,7 +100,17 @@ const ScanForm = () => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: name === "numWorkers" ? Number(value) : (type === 'checkbox' ? checked : value)
+    }));
+  };
+  
+
+  const handleHostChange = (event, newValue) => {
+    setFormData(prev => ({
+      ...prev,
+      remoteHost: newValue || '',
+      remoteUser: newValue ? DEFAULT_CREDENTIALS.username : '',
+      remotePass: newValue ? DEFAULT_CREDENTIALS.password : ''
     }));
   };
 
@@ -108,13 +139,11 @@ const ScanForm = () => {
       setIsLoading(true);
       
       let result;
-      // Call the appropriate Wails function based on type
       if (type === 'project') {
         result = await window.go.main.App.SelectDirectory();
       } else if (type === 'key') {
         result = await window.go.main.App.SelectFile("SSH Key");
       } else {
-        // For nessus files or other types
         result = await window.go.main.App.SelectFile("All Files");
       }
   
@@ -171,10 +200,13 @@ const ScanForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    
+  
     try {
       validateForm();
-      const response = await nmbApi.startScan(formData);
+      const response = await nmbApi.startScan({
+        ...formData,
+        numWorkers: Number(formData.numWorkers)  // Converts to number 
+      });
       showStatus('Scan started successfully', 'success');
     } catch (error) {
       showStatus(error.message, 'error');
@@ -182,6 +214,7 @@ const ScanForm = () => {
       setIsLoading(false);
     }
   };
+  
 
   return (
     <Paper elevation={3} sx={{ p: 4, m: 2 }}>
@@ -202,7 +235,7 @@ const ScanForm = () => {
             <TextField
               required
               fullWidth
-              label="Nessus File Path"
+              label="Nessus CSV File Path"
               name="nessusFilePath"
               value={formData.nessusFilePath}
               onChange={handleChange}
@@ -225,7 +258,7 @@ const ScanForm = () => {
             <TextField
               required
               fullWidth
-              label="Project Folder"
+              label="Output Folder Location"
               name="projectFolder"
               value={formData.projectFolder}
               onChange={handleChange}
@@ -244,13 +277,26 @@ const ScanForm = () => {
             />
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <TextField
+          <Grid item xs={12}>
+            <Autocomplete
               fullWidth
-              label="Remote Host"
-              name="remoteHost"
+              options={DRONE_LIST}
               value={formData.remoteHost}
-              onChange={handleChange}
+              onChange={handleHostChange}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Remote Host"
+                  placeholder="Search for a drone..."
+                  required={false}
+                />
+              )}
+              freeSolo
+              renderOption={(props, option) => (
+                <Box component="li" {...props}>
+                  <Typography variant="body1">{option}</Typography>
+                </Box>
+              )}
             />
           </Grid>
 
@@ -278,38 +324,38 @@ const ScanForm = () => {
           </Grid>
 
           <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            label="SSH Key File"
-            name="remoteKey"
-            value={formData.remoteKey}
-            onChange={handleChange}
-            disabled={!formData.remoteHost}
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <Tooltip title="Browse for SSH key">
-                    <IconButton 
-                      onClick={() => handleBrowseFile('key')}
-                      disabled={isLoading || !formData.remoteHost}
-                      sx={{ mr: 1 }}
-                    >
-                      <Folder />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Use default SSH key">
-                    <IconButton
-                      onClick={useDefaultSSHKey}
-                      disabled={isLoading || !formData.remoteHost}
-                    >
-                      <Key />
-                    </IconButton>
-                  </Tooltip>
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Grid>
+            <TextField
+              fullWidth
+              label="SSH Key File"
+              name="remoteKey"
+              value={formData.remoteKey}
+              onChange={handleChange}
+              disabled={!formData.remoteHost}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title="Browse for SSH key">
+                      <IconButton 
+                        onClick={() => handleBrowseFile('key')}
+                        disabled={isLoading || !formData.remoteHost}
+                        sx={{ mr: 1 }}
+                      >
+                        <Folder />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Use default SSH key">
+                      <IconButton
+                        onClick={useDefaultSSHKey}
+                        disabled={isLoading || !formData.remoteHost}
+                      >
+                        <Key />
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
 
           <Grid item xs={12} md={6}>
             <TextField

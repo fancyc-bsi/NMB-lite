@@ -230,7 +230,7 @@ const GeneralSettings = () => {
             />
           </Grid>
 
-          <Grid item xs={12}>
+          {/* <Grid item xs={12}>
             <Divider sx={{ my: 2 }} />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="subtitle1">Drones (Remote Connections)</Typography>
@@ -279,7 +279,7 @@ const GeneralSettings = () => {
                 </ListItem>
               ))}
             </List>
-          </Grid>
+          </Grid> */}
 
           <Grid item xs={12}>
             <Button

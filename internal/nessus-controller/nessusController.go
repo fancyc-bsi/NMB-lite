@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"NMB/internal/logging"
@@ -33,6 +34,8 @@ type Nessus struct {
 	apiKeys      map[string]string
 	apiAuth      map[string]string
 	outputFolder string
+	stopRefresh  chan struct{}
+	mutex        sync.RWMutex
 }
 
 type Auth struct {
@@ -41,6 +44,9 @@ type Auth struct {
 }
 
 func (n *Nessus) getTokens() error {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
 	auth := Auth{
 		Username: n.username,
 		Password: n.password,
@@ -104,6 +110,37 @@ func (n *Nessus) getTokens() error {
 	return nil
 }
 
+func (n *Nessus) startTokenRefresh() {
+	n.stopRefresh = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := n.getTokens(); err != nil {
+					logging.ErrorLogger.Printf("Failed to refresh tokens: %v", err)
+					// Try to re-authenticate completely if token refresh fails
+					if err := n.authenticate(); err != nil {
+						logging.ErrorLogger.Printf("Failed to re-authenticate: %v", err)
+					}
+				} else {
+					logging.InfoLogger.Printf("Successfully refreshed authentication tokens")
+				}
+			case <-n.stopRefresh:
+				return
+			}
+		}
+	}()
+}
+
+func (n *Nessus) stopTokenRefresh() {
+	if n.stopRefresh != nil {
+		close(n.stopRefresh)
+	}
+}
+
 func (n *Nessus) getAPIKeys() error {
 	client := createInsecureClient()
 
@@ -151,11 +188,14 @@ func (n *Nessus) authenticate() error {
 		return err
 	}
 
+	// Start token refresh routine
+	n.startTokenRefresh()
+
 	logging.SuccessLogger.Printf("API tokens retrieved successfully")
 	return nil
 }
 
-// Helper function to make authenticated requests
+// Helper function to make authenticated requests with thread-safe token access
 func (n *Nessus) makeRequest(method, endpoint string, body []byte) (*http.Response, error) {
 	client := createInsecureClient()
 
@@ -166,15 +206,22 @@ func (n *Nessus) makeRequest(method, endpoint string, body []byte) (*http.Respon
 
 	req.Header.Set("Content-Type", "application/json")
 
-	// Add all authentication headers
+	// Thread-safe reading of auth headers
+	n.mutex.RLock()
 	for k, v := range n.tokenAuth {
 		req.Header.Set(k, v)
 	}
 	for k, v := range n.apiAuth {
 		req.Header.Set(k, v)
 	}
+	n.mutex.RUnlock()
 
 	return client.Do(req)
+}
+
+// Clean up resources when done
+func (n *Nessus) Close() {
+	n.stopTokenRefresh()
 }
 
 func New(host, username, password, projectName, targetsFile string, excludeFile []string, discovery bool) (*Nessus, error) {
@@ -229,6 +276,38 @@ func New(host, username, password, projectName, targetsFile string, excludeFile 
 
 	return n, nil
 }
+
+// Monitor scan progress
+func (n *Nessus) monitorScan() error {
+	logging.InfoLogger.Printf("Monitoring scan progress...")
+
+	for {
+		scan := n.getScanInfo()
+		if scan == nil {
+			return fmt.Errorf("scan not found")
+		}
+
+		status := fmt.Sprintf("%v", scan["status"])
+
+		switch status {
+		case "completed":
+			logging.InfoLogger.Printf("Scan completed successfully")
+			return nil
+		case "canceled", "failed":
+			return fmt.Errorf("scan %s", status)
+		case "running", "paused":
+			progress, ok := scan["progress"].(float64)
+			if ok {
+				logging.InfoLogger.Printf("Scan progress: %.0f%%", progress)
+			}
+			time.Sleep(30 * time.Second)
+		default:
+			logging.InfoLogger.Printf("Scan status: %s", status)
+			time.Sleep(30 * time.Second)
+		}
+	}
+}
+
 func (n *Nessus) createScan(launch bool) error {
 	logging.InfoLogger.Printf("Creating new scan")
 
@@ -455,37 +534,6 @@ func (n *Nessus) scanAction(action string) error {
 	return nil
 }
 
-// Monitor scan progress
-func (n *Nessus) monitorScan() error {
-	logging.InfoLogger.Printf("Monitoring scan progress...")
-
-	for {
-		scan := n.getScanInfo()
-		if scan == nil {
-			return fmt.Errorf("scan not found")
-		}
-
-		status := fmt.Sprintf("%v", scan["status"])
-
-		switch status {
-		case "completed":
-			logging.InfoLogger.Printf("Scan completed successfully")
-			return nil
-		case "canceled", "failed":
-			return fmt.Errorf("scan %s", status)
-		case "running", "paused":
-			progress, ok := scan["progress"].(float64)
-			if ok {
-				logging.InfoLogger.Printf("Scan progress: %.0f%%", progress)
-			}
-			time.Sleep(30 * time.Second)
-		default:
-			logging.InfoLogger.Printf("Scan status: %s", status)
-			time.Sleep(30 * time.Second)
-		}
-	}
-}
-
 type ExportFormat struct {
 	Format            string                 `json:"format"`
 	TemplateID        string                 `json:"template_id,omitempty"`
@@ -690,9 +738,12 @@ func createInsecureClient() *http.Client {
 }
 
 func (n *Nessus) getDroneIP() (string, error) {
-	output, err := n.remote.ExecuteCommand("hostname -i | cut -d' ' -f1")
-	if err != nil {
-		return "", fmt.Errorf("failed to get drone IP: %v", err)
+	output, err := n.remote.ExecuteCommand("ip -4 addr show eth0 | grep -oP '(?<=inet )[\\d.]+'")
+	if err != nil || output == "" {
+		output, err = n.remote.ExecuteCommand("ifconfig eth0 | grep -oP '(?<=inet )[0-9.]+'")
+		if err != nil {
+			return "", fmt.Errorf("failed to get drone IP: %v", err)
+		}
 	}
 	return strings.TrimSpace(output), nil
 }

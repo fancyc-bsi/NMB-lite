@@ -1,0 +1,6 @@
+- add exclude target file upload option
+- screenshot editor == cropping done, need to add highlight and redacting
+- dashboard to mirror drone dashboard?
+- port n2p :(
+- plugin manager fixes and ui updates == done
+- discovery profiles with preset nmap commands and ability to change them

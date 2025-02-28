@@ -17,6 +17,7 @@ import {
   IconButton,
   InputAdornment,
   Divider,
+  Autocomplete,
 } from '@mui/material';
 import { 
   Play, 
@@ -32,10 +33,38 @@ import {
 import nmbApi from '../api/nmbApi';
 import LogViewer from '../components/LogViewer/LogViewer';
 
+
+// Default credentials
+const DEFAULT_CREDENTIALS = {
+  username: 'bstg',
+  password: 'BulletH@x'
+};
+
+// Drone list
+const DRONE_LIST = [
+  "arkanoid", "asteroids", "bagman", "barbarian", "breakout", "civilization",
+  "contra", "crossbow", "defender", "digdug", "doom", "donkeykong", "duckhunt",
+  "galaga", "gauntlet", "gravitar", "journey", "joust", "jumpman", "junglehunt",
+  "kaboom", "karatechamp", "knockout", "kungfu", "megaman", "meltdown", "metalgear",
+  "millipede", "paperboy", "pitfall", "poleposition", "pong", "pooyan", "popeye",
+  "punchout", "qbert", "rampage", "sinistar", "spaceinvaders", "spyhunter",
+  "streetfighter", "tempest", "tron", "wizardry", "beserk", "zaxxon", "zork",
+  "doubledragon", "gorf", "ballblazer", "centipede", "combat", "hangon", "mario",
+  "foodfight", "excitebike", "jinks", "zelda", "frogger", "battlezone", "freeway",
+  "pacman", "tetris", "sonic", "burgertime", "diablo", "lemmings", "quake", "myst",
+  "fzero", "blasteroids", "outrun", "rampart", "castlevania", "ikari", "halo",
+  "simcity", "warcraft", "starwars", "choplifter", "gunfight", "metroid",
+  "ninjagaiden", "iceclimber", "icehockey", "radracer", "battletoads", "gradius",
+  "ninjaturtles", "fdl-aws-1", "hrd-1", "rsi-aws-1", "evi-lite-1", "evi-lite-2",
+  "hrd-lite-1", "trm-lite-1", "brain", "wily", "eggman", "ganon", "goro", "mantis",
+  "sigma", "wario", "blinky", "goomba", "kefka", "bison", "bowser", "kingboo",
+  "clyde", "mewtwo", "koopa", "akuma"
+];
+
 // Define field requirements for each mode
 const MODE_FIELDS = {
   create: ['projectName', 'targetsFile'],
-  deploy: ['projectName', 'targetsFile', 'discovery'],
+  deploy: ['projectName', 'targetsFile'],
   start: ['projectName'],
   stop: ['projectName'],
   pause: ['projectName'],
@@ -43,6 +72,7 @@ const MODE_FIELDS = {
   monitor: ['projectName'],
   launch: ['projectName', 'targetsFile'],
 };
+
 
 // Field configurations
 const FIELD_CONFIG = {
@@ -119,6 +149,15 @@ const NessusControl = () => {
     setControlData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleHostChange = (event, newValue) => {
+    setControlData(prev => ({
+      ...prev,
+      remoteHost: newValue || '',
+      remoteUser: newValue ? DEFAULT_CREDENTIALS.username : '',
+      remotePass: newValue ? DEFAULT_CREDENTIALS.password : ''
     }));
   };
 
@@ -250,6 +289,31 @@ const NessusControl = () => {
         );
 
       default:
+        if (fieldName === 'remoteHost') {
+          return (
+            <Autocomplete
+              fullWidth
+              options={DRONE_LIST}
+              value={controlData.remoteHost}
+              onChange={handleHostChange}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  margin="normal"
+                  label={config.label}
+                  required={config.required}
+                  placeholder="Search for a drone..."
+                />
+              )}
+              freeSolo
+              renderOption={(props, option) => (
+                <Box component="li" {...props}>
+                  <Typography variant="body1">{option}</Typography>
+                </Box>
+              )}
+            />
+          );
+        }
         return (
           <TextField
             fullWidth
@@ -260,7 +324,7 @@ const NessusControl = () => {
             value={controlData[fieldName]}
             onChange={handleChange}
             required={config.required}
-            disabled={isLoading}
+            disabled={isLoading || (fieldName === 'remoteUser' || fieldName === 'remotePass' ? !controlData.remoteHost : false)}
           />
         );
     }
@@ -268,15 +332,18 @@ const NessusControl = () => {
 
   const getVisibleFields = () => {
     if (!controlData.nessusMode) return [];
-    
-    const modeFields = MODE_FIELDS[controlData.nessusMode] || [];
+  
+    let modeFields = [...(MODE_FIELDS[controlData.nessusMode] || [])];
+  
+    // Ensure discovery is visible but not required in deploy mode
+    if (controlData.nessusMode === 'deploy' && !modeFields.includes('discovery')) {
+      modeFields.push('discovery');
+    }
+  
     const remoteFields = ['remoteHost', 'remoteUser', 'remotePass', 'remoteKey'];
-    
-    return [
-      ...modeFields,
-      ...remoteFields
-    ];
+    return [...modeFields, ...remoteFields];
   };
+  
 
   const renderFormFields = () => {
     const visibleFields = getVisibleFields();

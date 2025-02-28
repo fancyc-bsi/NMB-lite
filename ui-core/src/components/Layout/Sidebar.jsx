@@ -16,7 +16,8 @@ import {
   Activity,
   Terminal,
   Menu,
-  Home
+  Home,
+  Image
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -34,20 +35,22 @@ const StyledDrawer = styled(Drawer)({
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
-
+  
   const menuItems = [
     { text: 'Dashboard', icon: <Home size={20} />, path: '/' },
-    { text: 'Scan Manager', icon: <Scan size={20} />, path: '/scan' },
+    { text: 'NMB Manager', icon: <Scan size={20} />, path: '/scan' },
     { text: 'Nessus Control', icon: <Shield size={20} />, path: '/nessus' },
+    { text: 'Screenshot Editor', icon: <Image size={20} />, path: '/screenshots' },
+    { text: 'Plugin Manager', icon: <Activity size={20} />, path: '/plugins' },
     { text: 'Settings', icon: <Settings size={20} />, path: '/settings' },
   ];
-
+  
   return (
     <StyledDrawer variant="permanent" anchor="left">
       <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.12)' }}>
         <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Terminal size={24} />
-          NMB Controller
+          BSTI
         </Typography>
       </Box>
       <List>
@@ -78,4 +81,4 @@ const Sidebar = () => {
   );
 };
 
-export default Sidebar
+export default Sidebar;

@@ -20,7 +20,7 @@ echo "🐧 Building for Linux..."
 CGO_ENABLED=1 ~/go/bin/wails build -platform linux/amd64 -o ../bin/nmb -ldflags="-s -w"
 
 # Build for Windows with optimizations
-echo "🪟 Building for Windows..."
-CGO_ENABLED=1 GOOS=windows GOARCH=amd64 ~/go/bin/wails build -platform windows/amd64 -o ../bin/nmb.exe -ldflags="-s -w"
+#echo "🪟 Building for Windows..."
+#CGO_ENABLED=1 GOOS=windows GOARCH=amd64 ~/go/bin/wails build -platform windows/amd64 -o ../bin/nmb.exe -ldflags="-s -w"
 
 echo "✅ Build complete!"

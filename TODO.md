@@ -1,6 +1,11 @@
 - add exclude target file upload option
 - screenshot editor == cropping done, need to add highlight and redacting
 - dashboard to mirror drone dashboard?
-- port n2p :(
-- plugin manager fixes and ui updates == done
 - discovery profiles with preset nmap commands and ability to change them
+- allow users to view findings before upload to plextrac in a similar view, edit custom fields and so on 
+- need to fix pluginmanager tab crashing if config file isnt there
+- check if client overrides is working
+- refactor to not have to use websocket/api? or at least allow for different ports to be used.
+- make n2p data not clear upon leaving the tab
+- make nessus tab more interactive and allow for pulling of current clients/scans and their status
+- tidy up code

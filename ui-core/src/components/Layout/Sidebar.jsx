@@ -40,9 +40,11 @@ const Sidebar = () => {
     { text: 'Dashboard', icon: <Home size={20} />, path: '/' },
     { text: 'NMB Manager', icon: <Scan size={20} />, path: '/scan' },
     { text: 'Nessus Control', icon: <Shield size={20} />, path: '/nessus' },
+    { text: 'Nessus2Plextrac', icon: <Menu size={20} />, path: '/n2p' },
     { text: 'Screenshot Editor', icon: <Image size={20} />, path: '/screenshots' },
     { text: 'Plugin Manager', icon: <Activity size={20} />, path: '/plugins' },
     { text: 'Settings', icon: <Settings size={20} />, path: '/settings' },
+
   ];
   
   return (

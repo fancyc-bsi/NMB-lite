@@ -1481,8 +1481,9 @@ const PluginManager = () => {
         
         {/* Tab 3: Remove Plugins */}
         {activeTab === 2 && (
-          <Box p={3}>
-            <FormControl fullWidth variant="outlined" size="small" sx={{ mb: 3 }}>
+        <Box p={3}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <FormControl variant="outlined" size="small" sx={{ width: 250 }}>
               <InputLabel>Select Category</InputLabel>
               <Select
                 value={selectedCategory}
@@ -1497,9 +1498,19 @@ const PluginManager = () => {
               </Select>
             </FormControl>
             
-            <Typography variant="h6" gutterBottom>
-              Plugins in {selectedCategory || "selected category"}
-            </Typography>
+            <Button
+              variant="outlined"
+              color="info"
+              startIcon={<RefreshIcon />}
+              onClick={handleRefresh}
+            >
+              Refresh
+            </Button>
+          </Box>
+          
+          <Typography variant="h6" gutterBottom>
+            Plugins in {selectedCategory || "selected category"}
+          </Typography>
             
             <TextField
               fullWidth

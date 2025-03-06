@@ -2,8 +2,7 @@
     "plugins": {
         "Backup Allowed": {
             "ids": [
-                "10000002",
-                "101025"
+                "10000002"
             ],
             "writeup_db_id": "4169",
             "writeup_name": "Missing Android Backup Flag"
@@ -10059,7 +10058,8 @@
                 "201084",
                 "209149",
                 "126263",
-                "108797"
+                "108797",
+                "150788"
             ],
             "writeup_db_id": "99696175",
             "writeup_name": "Software Components Out of Date and Vulnerable"

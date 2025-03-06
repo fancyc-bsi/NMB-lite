@@ -6,12 +6,36 @@ export function AddPlugin(arg1, arg2) {
   return window['go']['main']['App']['AddPlugin'](arg1, arg2);
 }
 
+export function BrowseForClientConfig() {
+  return window['go']['main']['App']['BrowseForClientConfig']();
+}
+
+export function BrowseForNessusDirectory() {
+  return window['go']['main']['App']['BrowseForNessusDirectory']();
+}
+
+export function BrowseForScreenshotDirectory() {
+  return window['go']['main']['App']['BrowseForScreenshotDirectory']();
+}
+
 export function ClearChanges() {
   return window['go']['main']['App']['ClearChanges']();
 }
 
 export function CreateCategory(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateCategory'](arg1, arg2, arg3);
+}
+
+export function CreateClientDetailed(arg1) {
+  return window['go']['main']['App']['CreateClientDetailed'](arg1);
+}
+
+export function CreateN2PClient(arg1) {
+  return window['go']['main']['App']['CreateN2PClient'](arg1);
+}
+
+export function CreateReportDetailed(arg1) {
+  return window['go']['main']['App']['CreateReportDetailed'](arg1);
 }
 
 export function DeleteCategory(arg1) {
@@ -42,8 +66,16 @@ export function GetConfigPath() {
   return window['go']['main']['App']['GetConfigPath']();
 }
 
+export function GetFieldTemplates(arg1) {
+  return window['go']['main']['App']['GetFieldTemplates'](arg1);
+}
+
 export function GetNonMergedPlugins() {
   return window['go']['main']['App']['GetNonMergedPlugins']();
+}
+
+export function GetPlextracServers() {
+  return window['go']['main']['App']['GetPlextracServers']();
 }
 
 export function GetPluginNames() {
@@ -52,6 +84,14 @@ export function GetPluginNames() {
 
 export function GetPluginsByCategory(arg1) {
   return window['go']['main']['App']['GetPluginsByCategory'](arg1);
+}
+
+export function GetReportTemplates(arg1) {
+  return window['go']['main']['App']['GetReportTemplates'](arg1);
+}
+
+export function GetScopes() {
+  return window['go']['main']['App']['GetScopes']();
 }
 
 export function HasPendingChanges() {
@@ -76,6 +116,10 @@ export function ReadSimulationResultsFile(arg1) {
 
 export function RemovePlugin(arg1, arg2) {
   return window['go']['main']['App']['RemovePlugin'](arg1, arg2);
+}
+
+export function RunN2P(arg1) {
+  return window['go']['main']['App']['RunN2P'](arg1);
 }
 
 export function SaveImageFile(arg1, arg2) {

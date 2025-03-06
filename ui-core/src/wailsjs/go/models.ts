@@ -1,3 +1,86 @@
+export namespace main {
+	
+	export class ClientDetailedConfig {
+	    username: string;
+	    password: string;
+	    targetPlextrac: string;
+	    clientName: string;
+	    snPsCode: string;
+	    stateCode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClientDetailedConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.targetPlextrac = source["targetPlextrac"];
+	        this.clientName = source["clientName"];
+	        this.snPsCode = source["snPsCode"];
+	        this.stateCode = source["stateCode"];
+	    }
+	}
+	export class N2PConfig {
+	    username: string;
+	    password: string;
+	    clientId: string;
+	    reportId: string;
+	    scope: string;
+	    directory: string;
+	    targetPlextrac: string;
+	    screenshotDir: string;
+	    nonCore: boolean;
+	    clientConfig: string;
+	    overwrite: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new N2PConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.clientId = source["clientId"];
+	        this.reportId = source["reportId"];
+	        this.scope = source["scope"];
+	        this.directory = source["directory"];
+	        this.targetPlextrac = source["targetPlextrac"];
+	        this.screenshotDir = source["screenshotDir"];
+	        this.nonCore = source["nonCore"];
+	        this.clientConfig = source["clientConfig"];
+	        this.overwrite = source["overwrite"];
+	    }
+	}
+	export class ReportDetailedConfig {
+	    username: string;
+	    password: string;
+	    targetPlextrac: string;
+	    clientId: string;
+	    reportName: string;
+	    reportTemplate: string;
+	    customFieldTemplate: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReportDetailedConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.targetPlextrac = source["targetPlextrac"];
+	        this.clientId = source["clientId"];
+	        this.reportName = source["reportName"];
+	        this.reportTemplate = source["reportTemplate"];
+	        this.customFieldTemplate = source["customFieldTemplate"];
+	    }
+	}
+
+}
+
 export namespace plugin {
 	
 	export class PluginInfo {

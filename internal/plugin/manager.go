@@ -55,22 +55,24 @@ type CategoryInfo struct {
 
 // Manager handles operations on plugins
 type Manager struct {
-	ConfigPath  string
-	CSVPath     string
-	Config      Config
-	Findings    []Finding
-	TempChanges map[string][]string
-	PluginNames map[string]string
-	mu          sync.RWMutex
+	ConfigPath   string
+	CSVPath      string
+	Config       Config
+	Findings     []Finding
+	TempChanges  map[string][]string
+	TempRemovals map[string][]string
+	PluginNames  map[string]string
+	mu           sync.RWMutex
 }
 
 // NewManager creates a new plugin manager
 func NewManager(configPath, csvPath string) (*Manager, error) {
 	pm := &Manager{
-		ConfigPath:  configPath,
-		CSVPath:     csvPath,
-		TempChanges: make(map[string][]string),
-		PluginNames: make(map[string]string),
+		ConfigPath:   configPath,
+		CSVPath:      csvPath,
+		TempChanges:  make(map[string][]string),
+		TempRemovals: make(map[string][]string),
+		PluginNames:  make(map[string]string),
 	}
 
 	// Load the configuration
@@ -692,15 +694,10 @@ func (pm *Manager) RemovePlugin(category string, pluginID string) error {
 		return fmt.Errorf("category %s does not exist", category)
 	}
 
-	// Find the plugin in the category
+	// Check if the plugin exists in the category
 	found := false
-	categoryData := pm.Config.Plugins[category]
-	ids := categoryData.IDs
-	for i, id := range ids {
+	for _, id := range pm.Config.Plugins[category].IDs {
 		if id == pluginID {
-			// Remove the plugin from the list
-			categoryData.IDs = append(ids[:i], ids[i+1:]...)
-			pm.Config.Plugins[category] = categoryData
 			found = true
 			break
 		}
@@ -709,6 +706,22 @@ func (pm *Manager) RemovePlugin(category string, pluginID string) error {
 	if !found {
 		return fmt.Errorf("plugin %s not found in category %s", pluginID, category)
 	}
+
+	// Initialize the removals slice for this category if it doesn't exist
+	if pm.TempRemovals[category] == nil {
+		pm.TempRemovals[category] = make([]string, 0)
+	}
+
+	// Check if it's already in the pending removals
+	for _, id := range pm.TempRemovals[category] {
+		if id == pluginID {
+			return nil // Already pending removal
+		}
+	}
+
+	// Add to pending removals
+	pm.TempRemovals[category] = append(pm.TempRemovals[category], pluginID)
+	fmt.Printf("Added plugin %s to pending removals for category %s\n", pluginID, category)
 
 	return nil
 }
@@ -719,6 +732,7 @@ func (pm *Manager) ClearChanges() {
 	defer pm.mu.Unlock()
 
 	pm.TempChanges = make(map[string][]string)
+	pm.TempRemovals = make(map[string][]string)
 }
 
 // HasPendingChanges checks if there are any pending changes
@@ -726,7 +740,7 @@ func (pm *Manager) HasPendingChanges() bool {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	return len(pm.TempChanges) > 0
+	return len(pm.TempChanges) > 0 || len(pm.TempRemovals) > 0
 }
 
 // ViewChanges returns a string representation of the current changes
@@ -734,21 +748,40 @@ func (pm *Manager) ViewChanges() string {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	if len(pm.TempChanges) == 0 {
+	if len(pm.TempChanges) == 0 && len(pm.TempRemovals) == 0 {
 		return "No pending changes"
 	}
 
 	var sb strings.Builder
 	sb.WriteString("Current Changes:\n")
 
-	for category, plugins := range pm.TempChanges {
-		sb.WriteString(fmt.Sprintf("\n• %s:\n", category))
-		for _, plugin := range plugins {
-			name, exists := pm.PluginNames[plugin]
-			if !exists {
-				name = "Unknown"
+	// Show additions
+	if len(pm.TempChanges) > 0 {
+		sb.WriteString("\nAdditions:\n")
+		for category, plugins := range pm.TempChanges {
+			sb.WriteString(fmt.Sprintf("\n• %s:\n", category))
+			for _, plugin := range plugins {
+				name, exists := pm.PluginNames[plugin]
+				if !exists {
+					name = "Unknown"
+				}
+				sb.WriteString(fmt.Sprintf("  └── + %s (%s)\n", plugin, name))
 			}
-			sb.WriteString(fmt.Sprintf("  └── %s (%s)\n", plugin, name))
+		}
+	}
+
+	// Show removals
+	if len(pm.TempRemovals) > 0 {
+		sb.WriteString("\nRemovals:\n")
+		for category, plugins := range pm.TempRemovals {
+			sb.WriteString(fmt.Sprintf("\n• %s:\n", category))
+			for _, plugin := range plugins {
+				name, exists := pm.PluginNames[plugin]
+				if !exists {
+					name = "Unknown"
+				}
+				sb.WriteString(fmt.Sprintf("  └── - %s (%s)\n", plugin, name))
+			}
 		}
 	}
 
@@ -930,7 +963,7 @@ func (pm *Manager) SimulateFindings() (map[string][]PluginInfo, []PluginInfo, er
 func (pm *Manager) WriteChanges() error {
 	fmt.Println("WriteChanges called")
 
-	// First check if there are changes without holding the lock
+	// Check if there are any changes
 	if !pm.HasPendingChanges() {
 		fmt.Println("No changes to write")
 		return errors.New("no changes to write")
@@ -938,65 +971,102 @@ func (pm *Manager) WriteChanges() error {
 
 	// Acquire lock for processing changes
 	pm.mu.Lock()
+	defer pm.mu.Unlock()
 
-	// Make a copy of the temporary changes to work with
-	tempChanges := make(map[string][]string)
-	for category, pluginIDs := range pm.TempChanges {
-		tempChanges[category] = make([]string, len(pluginIDs))
-		copy(tempChanges[category], pluginIDs)
-	}
+	// Process additions
+	if len(pm.TempChanges) > 0 {
+		fmt.Printf("Processing %d categories with additions\n", len(pm.TempChanges))
 
-	fmt.Printf("Found %d categories with changes\n", len(tempChanges))
-
-	// Process all changes
-	for category, pluginIDs := range tempChanges {
-		fmt.Printf("Category %s has %d plugins to add\n", category, len(pluginIDs))
-
-		if _, exists := pm.Config.Plugins[category]; !exists {
-			pm.mu.Unlock() // Release lock before returning
-			return fmt.Errorf("category %s does not exist", category)
+		// Make a copy of the temporary additions to work with
+		tempAdditions := make(map[string][]string)
+		for category, pluginIDs := range pm.TempChanges {
+			tempAdditions[category] = make([]string, len(pluginIDs))
+			copy(tempAdditions[category], pluginIDs)
 		}
 
-		// Add any new plugin IDs to the category
-		for _, pluginID := range pluginIDs {
-			found := false
-			for _, id := range pm.Config.Plugins[category].IDs {
-				if id == pluginID {
-					found = true
-					break
+		// Process all additions
+		for category, pluginIDs := range tempAdditions {
+			fmt.Printf("Category %s has %d plugins to add\n", category, len(pluginIDs))
+
+			if _, exists := pm.Config.Plugins[category]; !exists {
+				return fmt.Errorf("category %s does not exist", category)
+			}
+
+			// Add any new plugin IDs to the category
+			for _, pluginID := range pluginIDs {
+				found := false
+				for _, id := range pm.Config.Plugins[category].IDs {
+					if id == pluginID {
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					fmt.Printf("Adding plugin %s to category %s\n", pluginID, category)
+					// Create a temporary copy of the category
+					categoryData := pm.Config.Plugins[category]
+					// Modify the copy
+					categoryData.IDs = append(categoryData.IDs, pluginID)
+					// Assign the modified copy back to the map
+					pm.Config.Plugins[category] = categoryData
+				} else {
+					fmt.Printf("Plugin %s already in category %s\n", pluginID, category)
 				}
 			}
+		}
+	}
 
-			if !found {
-				fmt.Printf("Adding plugin %s to category %s\n", pluginID, category)
-				// Create a temporary copy of the category
+	// Process removals
+	if len(pm.TempRemovals) > 0 {
+		fmt.Printf("Processing %d categories with removals\n", len(pm.TempRemovals))
+
+		// Make a copy of the temporary removals to work with
+		tempRemovals := make(map[string][]string)
+		for category, pluginIDs := range pm.TempRemovals {
+			tempRemovals[category] = make([]string, len(pluginIDs))
+			copy(tempRemovals[category], pluginIDs)
+		}
+
+		// Process all removals
+		for category, pluginIDs := range tempRemovals {
+			fmt.Printf("Category %s has %d plugins to remove\n", category, len(pluginIDs))
+
+			if _, exists := pm.Config.Plugins[category]; !exists {
+				return fmt.Errorf("category %s does not exist", category)
+			}
+
+			// Remove plugins from the category
+			for _, pluginID := range pluginIDs {
 				categoryData := pm.Config.Plugins[category]
-				// Modify the copy
-				categoryData.IDs = append(categoryData.IDs, pluginID)
-				// Assign the modified copy back to the map
-				pm.Config.Plugins[category] = categoryData
-			} else {
-				fmt.Printf("Plugin %s already in category %s\n", pluginID, category)
+				ids := categoryData.IDs
+
+				for i, id := range ids {
+					if id == pluginID {
+						// Remove the plugin from the list
+						fmt.Printf("Removing plugin %s from category %s\n", pluginID, category)
+						categoryData.IDs = append(ids[:i], ids[i+1:]...)
+						pm.Config.Plugins[category] = categoryData
+						break
+					}
+				}
 			}
 		}
 	}
 
-	// Write the updated config to file while still holding the lock
+	// Write the updated config to file
 	fmt.Println("Saving config to file:", pm.ConfigPath)
-	err := pm.SaveConfig() // SaveConfig no longer acquires locks
+	err := pm.SaveConfig()
 
 	if err != nil {
 		fmt.Printf("Error saving config: %v\n", err)
-		pm.mu.Unlock() // Release lock before returning error
 		return err
 	}
 
 	fmt.Println("Config saved successfully, clearing temp changes")
 	// Clear the temporary changes
 	pm.TempChanges = make(map[string][]string)
-
-	// Release the lock
-	pm.mu.Unlock()
+	pm.TempRemovals = make(map[string][]string)
 
 	fmt.Println("WriteChanges completed successfully")
 	return nil

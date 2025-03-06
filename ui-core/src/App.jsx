@@ -11,6 +11,7 @@ import SettingsPage from './pages/SettingsPage';
 import NessusControl from './pages/NessusControl';
 import ScreenshotEditor from './pages/ScreenshotEditor';
 import PluginManagerPage from './pages/PluginManager';
+import Nessus2Plextrac from './pages/Nessus2Plextrac';
 
 const darkTheme = createTheme({
   palette: {
@@ -70,9 +71,12 @@ const App = () => {
               <Route path="/" element={<Dashboard />} />
               <Route path="/scan" element={<ScanPage />} />
               <Route path="/nessus" element={<NessusControl />} />
+              <Route path="/n2p" element={<Nessus2Plextrac />} />
               <Route path="/screenshots" element={<ScreenshotEditor />} />
-              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/plugins" element={<PluginManagerPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              
+              
 
             </Routes>
           </Box>

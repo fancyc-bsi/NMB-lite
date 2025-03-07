@@ -9,3 +9,7 @@
 - make n2p data not clear upon leaving the tab
 - make nessus tab more interactive and allow for pulling of current clients/scans and their status
 - tidy up code
+- nmb show summary of findings that will be missed, allow user to enter their custom commands if they know how to validate and offer to save it to the json for next time 
+- remove embedding nmb config ?
+- plugin manager allow for multiple csv? 
+- text box crashing page for entering custom 

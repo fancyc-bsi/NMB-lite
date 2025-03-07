@@ -138,6 +138,8 @@ const PluginManager = () => {
     });
   };
 
+
+
   // Debug helper functions
   const debugSimulationResponse = (result) => {
     const debugInfo = [];
@@ -1609,14 +1611,14 @@ const PluginManager = () => {
                 >
                   Clear Changes
                 </Button>
-                <Button
+                {/* <Button
                   variant="outlined"
                   color="secondary"
                   startIcon={<BugReportIcon />}
                   onClick={handleDebugChanges}
                 >
                   Debug Config
-                </Button>
+                </Button> */}
               </Box>
             </Box>
             
@@ -1654,7 +1656,7 @@ const PluginManager = () => {
                 Run Simulation
               </Button>
               
-              {/* Debug buttons - for troubleshooting */}
+              {/* Debug buttons - for troubleshooting
               <Button
                 variant="outlined"
                 color="secondary"
@@ -1672,7 +1674,7 @@ const PluginManager = () => {
                 onClick={toggleDebugOutput}
               >
                 Toggle Debug Output
-              </Button>
+              </Button> */}
             </Box>
             
             {/* Debug output area */}

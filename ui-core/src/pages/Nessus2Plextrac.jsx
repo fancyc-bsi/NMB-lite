@@ -38,6 +38,8 @@ import {
   List,
   ListItem,
   ListItemText,
+  Tab,
+  Tabs,
 } from '@mui/material';
 import {
   HelpOutline as HelpIcon,
@@ -69,9 +71,18 @@ import {
   GetFieldTemplates,
   CreateClientDetailed,
   CreateReportDetailed,
+  GetFindings,
+  UpdateFinding,
+  BulkUpdateFindings,
 } from '../wailsjs/go/main/App';
 
+// Import FindingsTab component
+import FindingsTab from './FindingsTab';
+
 const Nessus2Plextrac = () => {
+  // Add activeTab state
+  const [activeTab, setActiveTab] = useState('config'); // Options: 'config', 'findings'
+  
   // State for form fields
   const [config, setConfig] = useState({
     username: '',
@@ -985,543 +996,564 @@ const Nessus2Plextrac = () => {
         </Box>
       </Box>
 
-      <Grid container spacing={3}>
-        {/* Form Section */}
-        <Grid item xs={12} md={6}>
-          <Paper
-            elevation={3}
-            sx={{
-              p: 3,
-              borderRadius: 2,
-              height: '100%',
-            }}
-          >
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'medium' }}>
-                Configuration
-              </Typography>
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={config.debug}
+      {/* Tab Navigation */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs 
+          value={activeTab} 
+          onChange={(e, newValue) => setActiveTab(newValue)}
+          aria-label="Nessus2Plextrac tabs"
+        >
+          <Tab label="Configuration" value="config" />
+          <Tab 
+            label="Findings Management" 
+            value="findings" 
+            disabled={!config.clientId || !config.reportId} 
+          />
+        </Tabs>
+      </Box>
+
+      {/* Conditional rendering based on active tab */}
+      {activeTab === 'config' ? (
+        <Grid container spacing={3}>
+          {/* Form Section */}
+          <Grid item xs={12} md={6}>
+            <Paper
+              elevation={3}
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                height: '100%',
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'medium' }}>
+                  Configuration
+                </Typography>
+                
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={config.debug}
+                      onChange={handleChange}
+                      name="debug"
+                      color="warning"
+                      size="small"
+                    />
+                  }
+                  label={
+                    <Box display="flex" alignItems="center">
+                      <Typography variant="body2">Debug Mode</Typography>
+                      <Tooltip title="Enable detailed debugging information">
+                        <IconButton size="small">
+                          <BugIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  }
+                />
+              </Box>
+              <Divider sx={{ mb: 2 }} />
+
+              <Grid container spacing={2}>
+                {/* Authentication Section */}
+                <Grid item xs={12}>
+                  <Typography variant="subtitle1" fontWeight="medium" gutterBottom>
+                    Authentication
+                  </Typography>
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Username"
+                    name="username"
+                    value={config.username}
                     onChange={handleChange}
-                    name="debug"
-                    color="warning"
+                    error={!!errors.username}
+                    helperText={errors.username}
+                    required
                     size="small"
                   />
-                }
-                label={
-                  <Box display="flex" alignItems="center">
-                    <Typography variant="body2">Debug Mode</Typography>
-                    <Tooltip title="Enable detailed debugging information">
-                      <IconButton size="small">
-                        <BugIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                }
-              />
-            </Box>
-            <Divider sx={{ mb: 2 }} />
+                </Grid>
 
-            <Grid container spacing={2}>
-              {/* Authentication Section */}
-              <Grid item xs={12}>
-                <Typography variant="subtitle1" fontWeight="medium" gutterBottom>
-                  Authentication
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Password"
+                    name="password"
+                    type="password"
+                    value={config.password}
+                    onChange={handleChange}
+                    error={!!errors.password}
+                    helperText={errors.password}
+                    required
+                    size="small"
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    select
+                    label="Plextrac Server"
+                    name="targetPlextrac"
+                    value={config.targetPlextrac}
+                    onChange={handleChange}
+                    required
+                    size="small"
+                  >
+                    {plextracServers.map((server) => (
+                      <MenuItem key={server} value={server}>
+                        {server}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={handleOpenClientCreationDialog}
+                    disabled={loading || !config.username || !config.password || !config.targetPlextrac}
+                    startIcon={<AddIcon />}
+                    sx={{ mt: 0.5, height: '40px' }}
+                    fullWidth
+                  >
+                    Client and Report Creation
+                  </Button>
+                </Grid>
+
+                {/* Report Section */}
+                <Grid item xs={12}>
+                  <Typography variant="subtitle1" fontWeight="medium" gutterBottom sx={{ mt: 2 }}>
+                    Report Details
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Client ID"
+                    name="clientId"
+                    value={config.clientId}
+                    onChange={handleChange}
+                    error={!!errors.clientId}
+                    helperText={errors.clientId}
+                    required
+                    size="small"
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Report ID"
+                    name="reportId"
+                    value={config.reportId}
+                    onChange={handleChange}
+                    error={!!errors.reportId}
+                    helperText={errors.reportId}
+                    required
+                    size="small"
+                  />
+                </Grid>
+
+                {/* Import Settings */}
+                <Grid item xs={12}>
+                  <Typography variant="subtitle1" fontWeight="medium" gutterBottom sx={{ mt: 2 }}>
+                    Import Settings
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    select
+                    label="Scope"
+                    name="scope"
+                    value={config.scope}
+                    onChange={handleChange}
+                    required
+                    helperText="Determines the tagging and title prefix"
+                    size="small"
+                  >
+                    {scopes.map((scope) => (
+                      <MenuItem key={scope.value} value={scope.value}>
+                        {scope.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={config.nonCore}
+                        onChange={handleChange}
+                        name="nonCore"
+                        color="primary"
+                      />
+                    }
+                    label={
+                      <Box display="flex" alignItems="center">
+                        <Typography>Add Non-Core Fields</Typography>
+                        <Tooltip title="Add additional custom fields to the imported findings">
+                          <IconButton size="small">
+                            <HelpIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    }
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={config.overwrite}
+                        onChange={handleChange}
+                        name="overwrite"
+                        color="primary"
+                      />
+                    }
+                    label={
+                      <Box display="flex" alignItems="center">
+                        <Typography>Overwrite Existing Data</Typography>
+                        <Tooltip title="Overwrite existing data in findings instead of appending">
+                          <IconButton size="small">
+                            <HelpIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    }
+                  />
+                </Grid>
+
+                {/* Directory Paths */}
+                <Grid item xs={12}>
+                  <Typography variant="subtitle1" fontWeight="medium" gutterBottom sx={{ mt: 2 }}>
+                    Files & Directories
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Nessus Directory"
+                    name="directory"
+                    value={config.directory}
+                    onChange={handleChange}
+                    required
+                    error={!!errors.directory}
+                    helperText={errors.directory || "Directory containing Nessus CSV files"}
+                    size="small"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={handleBrowseNessusDirectory} edge="end">
+                            <FolderIcon />
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Grid>
+
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Screenshot Directory (Optional)"
+                    name="screenshotDir"
+                    value={config.screenshotDir}
+                    onChange={handleChange}
+                    helperText="Directory containing screenshot images"
+                    size="small"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={handleBrowseScreenshotDirectory} edge="end">
+                            <FolderIcon />
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Grid>
+
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Client Config (Optional)"
+                    name="clientConfig"
+                    value={config.clientConfig}
+                    onChange={handleChange}
+                    helperText="TOML file with client-specific configurations"
+                    size="small"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={handleBrowseClientConfig} edge="end">
+                            <FolderIcon />
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Grid>
+
+                {/* Submit Button */}
+                <Grid item xs={12}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleRunN2P}
+                    disabled={loading}
+                    startIcon={loading ? <CircularProgress size={20} /> : <UploadIcon />}
+                    fullWidth
+                    sx={{ mt: 2, py: 1 }}
+                  >
+                    {loading ? 'Processing...' : 'Run Nessus to Plextrac'}
+                  </Button>
+                </Grid>
+              </Grid>
+            </Paper>
+          </Grid>
+
+          {/* Status & Logs Section */}
+          <Grid item xs={12} md={6}>
+            <Paper
+              elevation={3}
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  mb: 2,
+                }}
+              >
+                <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'medium' }}>
+                  Status & Logs
                 </Typography>
-              </Grid>
-              
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Username"
-                  name="username"
-                  value={config.username}
-                  onChange={handleChange}
-                  error={!!errors.username}
-                  helperText={errors.username}
-                  required
-                  size="small"
-                />
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Password"
-                  name="password"
-                  type="password"
-                  value={config.password}
-                  onChange={handleChange}
-                  error={!!errors.password}
-                  helperText={errors.password}
-                  required
-                  size="small"
-                />
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Plextrac Server"
-                  name="targetPlextrac"
-                  value={config.targetPlextrac}
-                  onChange={handleChange}
-                  required
-                  size="small"
-                >
-                  {plextracServers.map((server) => (
-                    <MenuItem key={server} value={server}>
-                      {server}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
                 <Button
                   variant="outlined"
-                  color="primary"
-                  onClick={handleOpenClientCreationDialog}
-                  disabled={loading || !config.username || !config.password || !config.targetPlextrac}
-                  startIcon={<AddIcon />}
-                  sx={{ mt: 0.5, height: '40px' }}
-                  fullWidth
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={handleClearLogs}
                 >
-                  Interactive Client Creation
+                  Clear Logs
                 </Button>
-              </Grid>
+              </Box>
+              <Divider sx={{ mb: 2 }} />
 
-              {/* Report Section */}
-              <Grid item xs={12}>
-                <Typography variant="subtitle1" fontWeight="medium" gutterBottom sx={{ mt: 2 }}>
-                  Report Details
-                </Typography>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Client ID"
-                  name="clientId"
-                  value={config.clientId}
-                  onChange={handleChange}
-                  error={!!errors.clientId}
-                  helperText={errors.clientId}
-                  required
-                  size="small"
-                />
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Report ID"
-                  name="reportId"
-                  value={config.reportId}
-                  onChange={handleChange}
-                  error={!!errors.reportId}
-                  helperText={errors.reportId}
-                  required
-                  size="small"
-                />
-              </Grid>
-
-              {/* Import Settings */}
-              <Grid item xs={12}>
-                <Typography variant="subtitle1" fontWeight="medium" gutterBottom sx={{ mt: 2 }}>
-                  Import Settings
-                </Typography>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Scope"
-                  name="scope"
-                  value={config.scope}
-                  onChange={handleChange}
-                  required
-                  helperText="Determines the tagging and title prefix"
-                  size="small"
-                >
-                  {scopes.map((scope) => (
-                    <MenuItem key={scope.value} value={scope.value}>
-                      {scope.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={config.nonCore}
-                      onChange={handleChange}
-                      name="nonCore"
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Box display="flex" alignItems="center">
-                      <Typography>Add Non-Core Fields</Typography>
-                      <Tooltip title="Add additional custom fields to the imported findings">
-                        <IconButton size="small">
-                          <HelpIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  }
-                />
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={config.overwrite}
-                      onChange={handleChange}
-                      name="overwrite"
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Box display="flex" alignItems="center">
-                      <Typography>Overwrite Existing Data</Typography>
-                      <Tooltip title="Overwrite existing data in findings instead of appending">
-                        <IconButton size="small">
-                          <HelpIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  }
-                />
-              </Grid>
-
-              {/* Directory Paths */}
-              <Grid item xs={12}>
-                <Typography variant="subtitle1" fontWeight="medium" gutterBottom sx={{ mt: 2 }}>
-                  Files & Directories
-                </Typography>
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Nessus Directory"
-                  name="directory"
-                  value={config.directory}
-                  onChange={handleChange}
-                  required
-                  error={!!errors.directory}
-                  helperText={errors.directory || "Directory containing Nessus CSV files"}
-                  size="small"
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton onClick={handleBrowseNessusDirectory} edge="end">
-                          <FolderIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Screenshot Directory (Optional)"
-                  name="screenshotDir"
-                  value={config.screenshotDir}
-                  onChange={handleChange}
-                  helperText="Directory containing screenshot images"
-                  size="small"
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton onClick={handleBrowseScreenshotDirectory} edge="end">
-                          <FolderIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Client Config (Optional)"
-                  name="clientConfig"
-                  value={config.clientConfig}
-                  onChange={handleChange}
-                  helperText="TOML file with client-specific configurations"
-                  size="small"
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton onClick={handleBrowseClientConfig} edge="end">
-                          <FolderIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
-
-              {/* Submit Button */}
-              <Grid item xs={12}>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={handleRunN2P}
-                  disabled={loading}
-                  startIcon={loading ? <CircularProgress size={20} /> : <UploadIcon />}
-                  fullWidth
-                  sx={{ mt: 2, py: 1 }}
-                >
-                  {loading ? 'Processing...' : 'Run Nessus to Plextrac'}
-                </Button>
-              </Grid>
-            </Grid>
-          </Paper>
-        </Grid>
-
-        {/* Status & Logs Section */}
-        <Grid item xs={12} md={6}>
-          <Paper
-            elevation={3}
-            sx={{
-              p: 3,
-              borderRadius: 2,
-              display: 'flex',
-              flexDirection: 'column',
-              height: '100%',
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                mb: 2,
-              }}
-            >
-              <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 'medium' }}>
-                Status & Logs
-              </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<RefreshIcon />}
-                onClick={handleClearLogs}
+              {/* Status Box */}
+              <Card 
+                variant="outlined" 
+                sx={{ 
+                  mb: 2, 
+                  backgroundColor: status.toLowerCase().includes('error') 
+                    ? 'rgba(211, 47, 47, 0.04)' 
+                    : status.toLowerCase().includes('success') 
+                      ? 'rgba(76, 175, 80, 0.04)' 
+                      : 'background.paper',
+                  borderColor: status.toLowerCase().includes('error') 
+                    ? 'error.main' 
+                    : status.toLowerCase().includes('success') 
+                      ? 'success.main' 
+                      : 'divider'
+                }}
               >
-                Clear Logs
-              </Button>
-            </Box>
-            <Divider sx={{ mb: 2 }} />
-
-            {/* Status Box */}
-            <Card 
-              variant="outlined" 
-              sx={{ 
-                mb: 2, 
-                backgroundColor: status.toLowerCase().includes('error') 
-                  ? 'rgba(211, 47, 47, 0.04)' 
-                  : status.toLowerCase().includes('success') 
-                    ? 'rgba(76, 175, 80, 0.04)' 
-                    : 'background.paper',
-                borderColor: status.toLowerCase().includes('error') 
-                  ? 'error.main' 
-                  : status.toLowerCase().includes('success') 
-                    ? 'success.main' 
-                    : 'divider'
-              }}
-            >
-              <CardContent>
-                <Typography variant="caption" color="text.secondary" gutterBottom>
-                  CURRENT STATUS
-                </Typography>
-                <Typography
-                  variant="body1"
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    fontWeight: 'medium',
-                  }}
-                >
-                  {loading ? (
-                    <CircularProgress size={16} />
-                  ) : status.toLowerCase().includes('error') ? (
-                    <ErrorIcon color="error" fontSize="small" />
-                  ) : status ? (
-                    <CheckIcon color="success" fontSize="small" />
-                  ) : null}
-                  {status || 'Ready to process'}
-                </Typography>
-              </CardContent>
-            </Card>
-
-            {/* Debug Information */}
-            {config.debug && (
-              <Accordion 
-                sx={{ mb: 2, backgroundColor: 'rgba(236, 236, 236, 0.1)' }}
-                variant="outlined"
-              >
-                <AccordionSummary
-                  expandIcon={<ExpandMoreIcon />}
-                  aria-controls="debug-panel-content"
-                  id="debug-panel-header"
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <BugIcon fontSize="small" color="warning" />
-                    <Typography variant="subtitle2">Debug Information</Typography>
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <Box sx={{ maxHeight: '200px', overflow: 'auto', fontSize: '0.75rem' }}>
-                    {(!debugInfo.lastRequest && !debugInfo.lastResponse && !debugInfo.lastError) ? (
-                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                        No debug information available yet. Start a process with debug mode enabled.
-                      </Typography>
-                    ) : (
-                      <Box>
-                        {debugInfo.lastError && (
-                          <Box sx={{ mb: 2 }}>
-                            <Typography variant="body2" color="error" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                              Last Error:
-                            </Typography>
-                            <Paper variant="outlined" sx={{ p: 1, backgroundColor: 'rgba(211, 47, 47, 0.04)' }}>
-                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                {formatJSON(debugInfo.lastError)}
-                              </pre>
-                            </Paper>
-                          </Box>
-                        )}
-                        
-                        {debugInfo.lastRequest && (
-                          <Box sx={{ mb: 2 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                              Last Request:
-                            </Typography>
-                            <Paper variant="outlined" sx={{ p: 1 }}>
-                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                {formatJSON(debugInfo.lastRequest)}
-                              </pre>
-                            </Paper>
-                          </Box>
-                        )}
-                        
-                        {debugInfo.lastResponse && (
-                          <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                              Last Response:
-                            </Typography>
-                            <Paper variant="outlined" sx={{ p: 1 }}>
-                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                {formatJSON(debugInfo.lastResponse)}
-                              </pre>
-                            </Paper>
-                          </Box>
-                        )}
-                      </Box>
-                    )}
-                  </Box>
-                </AccordionDetails>
-              </Accordion>
-            )}
-
-            {/* Log Display */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="subtitle2" fontWeight="medium">
-                Process Logs
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {logs.length} entries
-              </Typography>
-            </Box>
-            
-            <Paper
-              variant="outlined"
-              sx={{
-                backgroundColor: 'background.default',
-                borderRadius: 1,
-                flexGrow: 1,
-                overflow: 'auto',
-                maxHeight: '400px',
-                fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                fontSize: '0.75rem',
-                padding: 0,
-              }}
-            >
-              <Box sx={{ p: 1 }}>
-                {logs.length === 0 ? (
-                  <Typography
-                    variant="body2"
-                    color="text.disabled"
-                    sx={{ fontStyle: 'italic', p: 1, textAlign: 'center' }}
-                  >
-                    No logs yet. Start the process to see logs here.
+                <CardContent>
+                  <Typography variant="caption" color="text.secondary" gutterBottom>
+                    CURRENT STATUS
                   </Typography>
-                ) : (
-                  logs.map((log, index) => (
-                    <Box
-                      key={index}
-                      sx={{
-                        p: 0.75,
-                        borderRadius: 1,
-                        backgroundColor:
-                          log.level === 'error'
-                            ? 'rgba(255, 0, 0, 0.05)'
-                            : log.level === 'warning'
-                            ? 'rgba(255, 255, 0, 0.05)'
-                            : log.level === 'success'
-                            ? 'rgba(76, 175, 80, 0.05)'
-                            : log.level === 'debug'
-                            ? 'rgba(136, 132, 216, 0.05)'
-                            : 'transparent',
-                        borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                      }}
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      fontWeight: 'medium',
+                    }}
+                  >
+                    {loading ? (
+                      <CircularProgress size={16} />
+                    ) : status.toLowerCase().includes('error') ? (
+                      <ErrorIcon color="error" fontSize="small" />
+                    ) : status ? (
+                      <CheckIcon color="success" fontSize="small" />
+                    ) : null}
+                    {status || 'Ready to process'}
+                  </Typography>
+                </CardContent>
+              </Card>
+
+              {/* Debug Information */}
+              {config.debug && (
+                <Accordion 
+                  sx={{ mb: 2, backgroundColor: 'rgba(236, 236, 236, 0.1)' }}
+                  variant="outlined"
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    aria-controls="debug-panel-content"
+                    id="debug-panel-header"
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <BugIcon fontSize="small" color="warning" />
+                      <Typography variant="subtitle2">Debug Information</Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box sx={{ maxHeight: '200px', overflow: 'auto', fontSize: '0.75rem' }}>
+                      {(!debugInfo.lastRequest && !debugInfo.lastResponse && !debugInfo.lastError) ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                          No debug information available yet. Start a process with debug mode enabled.
+                        </Typography>
+                      ) : (
+                        <Box>
+                          {debugInfo.lastError && (
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" color="error" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                                Last Error:
+                              </Typography>
+                              <Paper variant="outlined" sx={{ p: 1, backgroundColor: 'rgba(211, 47, 47, 0.04)' }}>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {formatJSON(debugInfo.lastError)}
+                                </pre>
+                              </Paper>
+                            </Box>
+                          )}
+                          
+                          {debugInfo.lastRequest && (
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                                Last Request:
+                              </Typography>
+                              <Paper variant="outlined" sx={{ p: 1 }}>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {formatJSON(debugInfo.lastRequest)}
+                                </pre>
+                              </Paper>
+                            </Box>
+                          )}
+                          
+                          {debugInfo.lastResponse && (
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                                Last Response:
+                              </Typography>
+                              <Paper variant="outlined" sx={{ p: 1 }}>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {formatJSON(debugInfo.lastResponse)}
+                                </pre>
+                              </Paper>
+                            </Box>
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              )}
+
+              {/* Log Display */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight="medium">
+                  Process Logs
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {logs.length} entries
+                </Typography>
+              </Box>
+              
+              <Paper
+                variant="outlined"
+                sx={{
+                  backgroundColor: 'background.default',
+                  borderRadius: 1,
+                  flexGrow: 1,
+                  overflow: 'auto',
+                  maxHeight: '400px',
+                  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                  fontSize: '0.75rem',
+                  padding: 0,
+                }}
+              >
+                <Box sx={{ p: 1 }}>
+                  {logs.length === 0 ? (
+                    <Typography
+                      variant="body2"
+                      color="text.disabled"
+                      sx={{ fontStyle: 'italic', p: 1, textAlign: 'center' }}
                     >
-                      <Typography
-                        variant="body2"
-                        component="div"
+                      No logs yet. Start the process to see logs here.
+                    </Typography>
+                  ) : (
+                    logs.map((log, index) => (
+                      <Box
+                        key={index}
                         sx={{
-                          display: 'flex',
-                          gap: 1,
-                          wordBreak: 'break-word',
+                          p: 0.75,
+                          borderRadius: 1,
+                          backgroundColor:
+                            log.level === 'error'
+                              ? 'rgba(255, 0, 0, 0.05)'
+                              : log.level === 'warning'
+                              ? 'rgba(255, 255, 0, 0.05)'
+                              : log.level === 'success'
+                              ? 'rgba(76, 175, 80, 0.05)'
+                              : log.level === 'debug'
+                              ? 'rgba(136, 132, 216, 0.05)'
+                              : 'transparent',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
                         }}
                       >
-                        <span style={{ color: '#666', minWidth: '70px', fontSize: '0.7rem' }}>
-                          {new Date(log.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </span>
-                        <span style={{ 
-                          fontWeight: 'bold', 
-                          minWidth: '60px',
-                          color: getLogLevelColor(log.level),
-                          textTransform: 'uppercase',
-                          fontSize: '0.7rem'
-                        }}>
-                          [{log.level}]
-                        </span>
-                        <span style={{ flex: 1 }}>{log.message}</span>
-                      </Typography>
-                    </Box>
-                  ))
-                )}
-                <div ref={logsEndRef} />
-              </Box>
+                        <Typography
+                          variant="body2"
+                          component="div"
+                          sx={{
+                            display: 'flex',
+                            gap: 1,
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          <span style={{ color: '#666', minWidth: '70px', fontSize: '0.7rem' }}>
+                            {new Date(log.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                          <span style={{ 
+                            fontWeight: 'bold', 
+                            minWidth: '60px',
+                            color: getLogLevelColor(log.level),
+                            textTransform: 'uppercase',
+                            fontSize: '0.7rem'
+                          }}>
+                            [{log.level}]
+                          </span>
+                          <span style={{ flex: 1 }}>{log.message}</span>
+                        </Typography>
+                      </Box>
+                    ))
+                  )}
+                  <div ref={logsEndRef} />
+                </Box>
+              </Paper>
             </Paper>
-          </Paper>
+          </Grid>
         </Grid>
-      </Grid>
+      ) : (
+        <FindingsTab config={config} />
+      )}
 
       {/* Client Creation Dialog */}
       <Dialog

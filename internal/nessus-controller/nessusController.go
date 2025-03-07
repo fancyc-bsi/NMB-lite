@@ -1,6 +1,9 @@
 package nessus
 
 import (
+	"NMB/internal/crash"
+	"NMB/internal/logging"
+	"NMB/internal/remote"
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
@@ -14,9 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"NMB/internal/logging"
-	"NMB/internal/remote"
 )
 
 type Nessus struct {
@@ -41,6 +41,25 @@ type Nessus struct {
 type Auth struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+func (n *Nessus) safeExecute(component string, operation func() error) error {
+	reporter := crash.NewReporter("crash_reports")
+
+	extra := map[string]string{
+		"url":         n.url,
+		"username":    n.username,
+		"projectName": n.projectName,
+	}
+
+	if n.targetsList != "" {
+		extra["targets"] = n.targetsList
+	}
+
+	// Execute the operation with panic recovery
+	defer reporter.RecoverWithCrashReport("Nessus_"+component, extra)
+
+	return operation()
 }
 
 func (n *Nessus) getTokens() error {
@@ -135,6 +154,11 @@ func (n *Nessus) startTokenRefresh() {
 	}()
 }
 
+var (
+	ErrScanCanceled = fmt.Errorf("scan was canceled")
+	ErrScanFailed   = fmt.Errorf("scan failed to complete")
+)
+
 func (n *Nessus) stopTokenRefresh() {
 	if n.stopRefresh != nil {
 		close(n.stopRefresh)
@@ -195,6 +219,322 @@ func (n *Nessus) authenticate() error {
 	return nil
 }
 
+// Add this exported method to your nessus package
+
+func (n *Nessus) GetScanFindings(scanID string) (map[string]int, error) {
+	var findings map[string]int
+
+	err := n.safeExecute("GetScanFindings", func() error {
+		var err error
+		findings = make(map[string]int)
+
+		// First get the scan details
+		resp, err := n.makeRequest(http.MethodGet, "/scans/"+scanID, nil)
+		if err != nil {
+			return fmt.Errorf("failed to get scan details: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var scanDetails map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&scanDetails); err != nil {
+			return fmt.Errorf("failed to decode scan details: %v", err)
+		}
+
+		// Extract the vulnerabilities counts if available
+		info, ok := scanDetails["info"].(map[string]interface{})
+		if !ok {
+			return nil // Return empty findings if no info section
+		}
+
+		// Try to get severity counts from different possible locations in the response
+
+		// First try the vulnerabilities counts
+		if vulns, ok := info["vulnerabilities"].([]interface{}); ok {
+			for _, v := range vulns {
+				if vuln, ok := v.(map[string]interface{}); ok {
+					severity, _ := vuln["severity"].(float64)
+					count, _ := vuln["count"].(float64)
+
+					switch int(severity) {
+					case 4:
+						findings["critical"] += int(count)
+					case 3:
+						findings["high"] += int(count)
+					case 2:
+						findings["medium"] += int(count)
+					case 1:
+						findings["low"] += int(count)
+					case 0:
+						findings["info"] += int(count)
+					}
+				}
+			}
+
+			return nil
+		}
+
+		// If vulnerabilities counts not found, try the severities counts
+		sevs, ok := info["severities"].([]interface{})
+		if ok {
+			for _, s := range sevs {
+				if sev, ok := s.(map[string]interface{}); ok {
+					severity, _ := sev["id"].(float64)
+					count, _ := sev["count"].(float64)
+
+					switch int(severity) {
+					case 4:
+						findings["critical"] = int(count)
+					case 3:
+						findings["high"] = int(count)
+					case 2:
+						findings["medium"] = int(count)
+					case 1:
+						findings["low"] = int(count)
+					case 0:
+						findings["info"] = int(count)
+					}
+				}
+			}
+
+			return nil
+		}
+
+		// Last resort: try to get the total vulnerability counts
+		if hostCount, ok := info["hostcount"].(float64); ok && hostCount > 0 {
+			if counts, ok := info["counts"].(map[string]interface{}); ok {
+				if vulnsBySev, ok := counts["vulnerabilities"].(map[string]interface{}); ok {
+					// Extract by severity
+					criticalCount, _ := vulnsBySev["critical"].(float64)
+					highCount, _ := vulnsBySev["high"].(float64)
+					mediumCount, _ := vulnsBySev["medium"].(float64)
+					lowCount, _ := vulnsBySev["low"].(float64)
+					infoCount, _ := vulnsBySev["info"].(float64)
+
+					findings["critical"] = int(criticalCount)
+					findings["high"] = int(highCount)
+					findings["medium"] = int(mediumCount)
+					findings["low"] = int(lowCount)
+					findings["info"] = int(infoCount)
+
+					return nil
+				}
+			}
+		}
+
+		// If we couldn't get real findings, set defaults to prevent UI issues
+		findings["critical"] = 0
+		findings["high"] = 0
+		findings["medium"] = 0
+		findings["low"] = 0
+		findings["info"] = 0
+
+		return nil
+	})
+
+	// If err is nil, return the findings, otherwise return an error
+	return findings, err
+}
+
+func (n *Nessus) MakeRequest(method, endpoint string, body []byte) (*http.Response, error) {
+	return n.makeRequest(method, endpoint, body)
+}
+
+// GetScans returns a list of all scans from the Nessus API
+func (n *Nessus) GetScans() ([]map[string]interface{}, error) {
+	resp, err := n.makeRequest(http.MethodGet, "/scans", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scans: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	scans, ok := result["scans"].([]interface{})
+	if !ok {
+		return []map[string]interface{}{}, nil
+	}
+
+	var scansList []map[string]interface{}
+	for _, scan := range scans {
+		if scanMap, ok := scan.(map[string]interface{}); ok {
+			scansList = append(scansList, scanMap)
+		}
+	}
+
+	return scansList, nil
+}
+
+// GetScanDetails returns detailed information about a specific scan
+func (n *Nessus) GetScanDetails(scanID string) (map[string]interface{}, error) {
+	resp, err := n.makeRequest(http.MethodGet, "/scans/"+scanID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scan details: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return result, nil
+}
+
+// ExecuteScanAction performs an action (start, stop, pause, resume) on a scan
+func (n *Nessus) ExecuteScanAction(scanID, action string) error {
+	endpoint := fmt.Sprintf("/scans/%s/%s", scanID, action)
+	resp, err := n.makeRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("failed to execute scan action: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to %s scan: %s - %s", action, resp.Status, string(body))
+	}
+
+	return nil
+}
+
+// DeleteScan deletes a scan
+func (n *Nessus) DeleteScan(scanID string) error {
+	resp, err := n.makeRequest(http.MethodDelete, "/scans/"+scanID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to delete scan: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete scan: %s - %s", resp.Status, string(body))
+	}
+
+	return nil
+}
+
+// ExportScanByID exports a specific scan by ID
+func (n *Nessus) ExportScanByID(scanID string) error {
+	// Get scan details to check status
+	resp, err := n.makeRequest(http.MethodGet, "/scans/"+scanID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get scan details: %v", err)
+	}
+
+	var scanDetails map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&scanDetails); err != nil {
+		resp.Body.Close()
+		return fmt.Errorf("failed to decode scan details: %v", err)
+	}
+	resp.Body.Close()
+
+	// Extract scan name and status
+	info, ok := scanDetails["info"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid scan details format")
+	}
+
+	scanName, _ := info["name"].(string)
+	if scanName == "" {
+		scanName = fmt.Sprintf("scan_%s", scanID)
+	}
+
+	status, _ := info["status"].(string)
+	if status == "running" || status == "pending" {
+		logging.InfoLogger.Printf("Scan still running, will monitor until completion")
+		// Wait for scan to complete
+		n.projectName = scanName // Set project name so monitorScan can find it
+		if err := n.monitorScan(); err != nil {
+			return fmt.Errorf("monitoring scan failed: %v", err)
+		}
+	}
+
+	// Create an evidence folder based on the scan name
+	evidenceFolder := filepath.Join(n.outputFolder, "evidence", scanName)
+	if err := os.MkdirAll(evidenceFolder, 0755); err != nil {
+		return fmt.Errorf("failed to create evidence folder: %v", err)
+	}
+	logging.InfoLogger.Printf("Created evidence folder: %s", evidenceFolder)
+
+	templateID, err := n.getHTMLTemplateID()
+	if err != nil {
+		return fmt.Errorf("failed to get HTML template ID: %v", err)
+	}
+
+	formats := map[string]ExportFormat{
+		"csv": {
+			Format: "csv",
+			ReportContents: map[string]interface{}{
+				"csvColumns": map[string]bool{
+					"id": true, "cve": true, "cvss": true,
+					"risk": true, "hostname": true, "protocol": true,
+					"port": true, "plugin_name": true, "synopsis": true,
+					"description": true, "solution": true, "see_also": true,
+					"plugin_output": true, "stig_severity": true,
+					"cvss3_base_score": true, "cvss_temporal_score": true,
+					"cvss3_temporal_score": true, "risk_factor": true,
+					"references": true, "plugin_information": true,
+					"exploitable_with": true,
+				},
+			},
+			ExtraFilters: map[string]interface{}{
+				"host_ids":   []int{},
+				"plugin_ids": []int{},
+			},
+		},
+		"nessus": {
+			Format: "nessus",
+		},
+		"html": {
+			Format:     "html",
+			TemplateID: templateID,
+			ExtraFilters: map[string]interface{}{
+				"host_ids":   []int{},
+				"plugin_ids": []int{},
+			},
+		},
+	}
+
+	for format, config := range formats {
+		logging.InfoLogger.Printf("Exporting %s file...", format)
+
+		exportJSON, err := json.Marshal(config)
+		if err != nil {
+			return fmt.Errorf("failed to serialize export config: %v", err)
+		}
+
+		exportResp, err := n.makeRequest(http.MethodPost, fmt.Sprintf("/scans/%s/export", scanID), exportJSON)
+		if err != nil {
+			return fmt.Errorf("export request failed: %v", err)
+		}
+
+		defer exportResp.Body.Close()
+		var result struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(exportResp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode export token: %v", err)
+		}
+
+		if result.Token == "" {
+			return fmt.Errorf("no export token received for %s format", format)
+		}
+
+		// Create the output file path within the evidence folder
+		outputFile := filepath.Join(evidenceFolder, fmt.Sprintf("%s.%s", scanName, format))
+		if err := n.waitForDownload(result.Token, outputFile); err != nil {
+			return fmt.Errorf("failed to download %s file: %v", format, err)
+		}
+
+		logging.SuccessLogger.Printf("Exported %s file to %q", format, outputFile)
+	}
+
+	return nil
+}
+
 // Helper function to make authenticated requests with thread-safe token access
 func (n *Nessus) makeRequest(method, endpoint string, body []byte) (*http.Response, error) {
 	client := createInsecureClient()
@@ -225,6 +565,19 @@ func (n *Nessus) Close() {
 }
 
 func New(host, username, password, projectName, targetsFile string, excludeFile []string, discovery bool) (*Nessus, error) {
+	reporter := crash.NewReporter("crash_reports")
+
+	// Extra information for crash reports
+	extra := map[string]string{
+		"host":        host,
+		"username":    username,
+		"projectName": projectName,
+		"targetsFile": targetsFile,
+	}
+
+	// Recover from panics during initialization
+	defer reporter.RecoverWithCrashReport("NessusInitialization", extra)
+
 	remote, err := remote.NewRemoteExecutor(host, username, password, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create remote executor: %v", err)
@@ -293,8 +646,12 @@ func (n *Nessus) monitorScan() error {
 		case "completed":
 			logging.InfoLogger.Printf("Scan completed successfully")
 			return nil
-		case "canceled", "failed":
-			return fmt.Errorf("scan %s", status)
+		case "canceled":
+			logging.InfoLogger.Printf("Scan was canceled by user or system")
+			return ErrScanCanceled
+		case "failed":
+			logging.ErrorLogger.Printf("Scan failed to complete")
+			return ErrScanFailed
 		case "running", "paused":
 			progress, ok := scan["progress"].(float64)
 			if ok {
@@ -778,61 +1135,98 @@ func (n *Nessus) discoveryScan() (string, error) {
 }
 
 func (n *Nessus) Deploy() error {
-	if err := n.excludeTargets(); err != nil {
+	return n.safeExecute("Deploy", func() error {
+		if err := n.excludeTargets(); err != nil {
+			return err
+		}
+		if err := n.createScan(true); err != nil {
+			return err
+		}
+
+		err := n.monitorScan()
+		if err == ErrScanCanceled {
+			logging.InfoLogger.Printf("Scan was canceled, skipping export")
+			return nil // Return nil to prevent crash reporting
+		} else if err != nil {
+			return err
+		}
+
+		_, err = n.exportScan()
 		return err
-	}
-	if err := n.createScan(true); err != nil {
-		return err
-	}
-	if err := n.monitorScan(); err != nil {
-		return err
-	}
-	_, err := n.exportScan()
-	return err
+	})
 }
 
 func (n *Nessus) Create() error {
-	if err := n.excludeTargets(); err != nil {
-		return err
-	}
-	return n.createScan(false)
+	return n.safeExecute("Create", func() error {
+		if err := n.excludeTargets(); err != nil {
+			return err
+		}
+		return n.createScan(false)
+	})
 }
 
 func (n *Nessus) Launch() error {
-	if err := n.scanAction("launch"); err != nil {
+	return n.safeExecute("Launch", func() error {
+		if err := n.scanAction("launch"); err != nil {
+			return err
+		}
+
+		err := n.monitorScan()
+		if err == ErrScanCanceled {
+			logging.InfoLogger.Printf("Scan was canceled, skipping export")
+			return nil // Return nil to prevent crash reporting
+		} else if err != nil {
+			return err
+		}
+
+		_, err = n.exportScan()
 		return err
-	}
-	if err := n.monitorScan(); err != nil {
-		return err
-	}
-	_, err := n.exportScan()
-	return err
+	})
 }
 
 func (n *Nessus) Pause() error {
-	return n.scanAction("pause")
+	return n.safeExecute("Pause", func() error {
+		return n.scanAction("pause")
+	})
 }
 
 func (n *Nessus) Resume() error {
-	if err := n.scanAction("resume"); err != nil {
+	return n.safeExecute("Resume", func() error {
+		if err := n.scanAction("resume"); err != nil {
+			return err
+		}
+
+		err := n.monitorScan()
+		if err == ErrScanCanceled {
+			logging.InfoLogger.Printf("Scan was canceled, skipping export")
+			return nil // Return nil to prevent crash reporting
+		} else if err != nil {
+			return err
+		}
+
+		_, err = n.exportScan()
 		return err
-	}
-	if err := n.monitorScan(); err != nil {
-		return err
-	}
-	_, err := n.exportScan()
-	return err
+	})
 }
 
 func (n *Nessus) Monitor() error {
-	if err := n.monitorScan(); err != nil {
+	return n.safeExecute("Monitor", func() error {
+		err := n.monitorScan()
+		if err == ErrScanCanceled {
+			logging.InfoLogger.Printf("Scan was canceled, skipping export")
+			return nil // Return nil to prevent crash reporting
+		} else if err != nil {
+			return err
+		}
+
+		_, err = n.exportScan()
 		return err
-	}
-	_, err := n.exportScan()
-	return err
+	})
 }
 
 func (n *Nessus) Export() error {
-	_, err := n.exportScan()
-	return err
+	return n.safeExecute("Export", func() error {
+		_, err := n.exportScan()
+		return err
+	})
 }

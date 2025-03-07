@@ -3,11 +3,13 @@ package main
 import (
 	"NMB/internal/api"
 	"NMB/internal/args"
+	"NMB/internal/crash"
 	"NMB/internal/editor"
 	"NMB/internal/engine"
 	"NMB/internal/logging"
 	"NMB/internal/n2p"
 	"NMB/internal/n2p/client"
+	"NMB/internal/n2p/plextrac"
 	"NMB/internal/plugin"
 	"context"
 	"embed"
@@ -16,6 +18,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	other_runtime "runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -78,7 +82,55 @@ func init() {
 	logging.Init()
 }
 
+func setupGlobalPanicHandler() {
+	// Create a crash reporter
+	reporter := crash.NewReporter("crash_reports")
+
+	// Set up a global panic handler for the main goroutine
+	go func() {
+		if err := recover(); err != nil {
+			sysInfo := map[string]string{
+				"goVersion":     other_runtime.Version(),
+				"numCPU":        fmt.Sprintf("%d", other_runtime.NumCPU()),
+				"numGoroutines": fmt.Sprintf("%d", other_runtime.NumGoroutine()),
+				"osArch":        other_runtime.GOARCH,
+				"osType":        other_runtime.GOOS,
+			}
+
+			reporter.RecoverWithCrashReport("MainApplication", sysInfo)
+
+			// Exit the application after a crash in the main goroutine
+			os.Exit(1)
+		}
+	}()
+}
+
 func (a *App) startup(ctx context.Context) {
+	// Create a crash reporter
+	reporter := crash.NewReporter("crash_reports")
+
+	// Setup panic recovery for the UI startup
+	defer func() {
+		if err := recover(); err != nil {
+			extra := map[string]string{
+				"component": "UIStartup",
+				"timestamp": time.Now().Format(time.RFC3339),
+			}
+
+			if a.pluginManager != nil {
+				extra["pluginManagerInitialized"] = "true"
+				extra["configPath"] = a.pluginManager.GetConfigPath()
+			} else {
+				extra["pluginManagerInitialized"] = "false"
+			}
+
+			reporter.RecoverWithCrashReport("UIStartup", extra)
+
+			// Re-panic to allow wails to handle it
+			panic(err)
+		}
+	}()
+
 	a.ctx = ctx
 	a.screenshotManager = editor.NewScreenshotManager(ctx)
 
@@ -88,8 +140,6 @@ func (a *App) startup(ctx context.Context) {
 		configDir = "config"
 	}
 
-	// Define paths for the plugin manager
-	// configPath := filepath.Join(configDir, "N2P_config.json")
 	configPath := "N2P_config.json"
 
 	// Initialize plugin manager with empty CSV path (will be set by user)
@@ -100,16 +150,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	os.Setenv("GOGC", "50")
-	go func() {
-		server := api.NewServer()
-		errChan := make(chan error, 10) // Buffered channel
-		go func() {
-			errChan <- server.Run()
-		}()
-		if err := <-errChan; err != nil {
-			log.Printf("API server error: %v", err)
-		}
-	}()
+
 }
 
 // SelectFile opens a file selection dialog
@@ -1061,19 +1102,728 @@ func (a *App) CreateReportDetailed(config ReportDetailedConfig) map[string]strin
 	}
 }
 
+// FindingsRequest represents the request for fetching findings
+type FindingsRequest struct {
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	TargetPlextrac string `json:"targetPlextrac"`
+	ClientId       string `json:"clientId"`
+	ReportId       string `json:"reportId"`
+}
+
+// Finding represents a finding in Plextrac
+type Finding struct {
+	FlawID          string       `json:"flaw_id"`
+	Title           string       `json:"title"`
+	Severity        string       `json:"severity"`
+	Status          string       `json:"status"`
+	Description     string       `json:"description"`
+	Recommendations string       `json:"recommendations"`
+	Tags            []string     `json:"tags"`
+	Fields          []FieldValue `json:"fields"`
+}
+
+// FieldValue represents a custom field value
+type FieldValue struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// FindingsResponse represents the response for fetching findings
+type FindingsResponse struct {
+	Success  bool      `json:"success"`
+	Findings []Finding `json:"findings,omitempty"`
+	Error    string    `json:"error,omitempty"`
+}
+
+// UpdateFindingRequest represents the request for updating a finding
+type UpdateFindingRequest struct {
+	Username       string      `json:"username"`
+	Password       string      `json:"password"`
+	TargetPlextrac string      `json:"targetPlextrac"`
+	ClientId       string      `json:"clientId"`
+	ReportId       string      `json:"reportId"`
+	FindingId      string      `json:"findingId"`
+	UpdateType     string      `json:"updateType"` // 'severity', 'status', 'customFields', etc.
+	Severity       string      `json:"severity,omitempty"`
+	Status         string      `json:"status,omitempty"`
+	CustomFields   *FieldValue `json:"customFields,omitempty"`
+}
+
+// BulkUpdateRequest represents the request for bulk updating findings
+type BulkUpdateRequest struct {
+	Username       string   `json:"username"`
+	Password       string   `json:"password"`
+	TargetPlextrac string   `json:"targetPlextrac"`
+	ClientId       string   `json:"clientId"`
+	ReportId       string   `json:"reportId"`
+	FindingIds     []string `json:"findingIds"`
+	UpdateType     string   `json:"updateType"` // 'tags', 'status', etc.
+	Tags           []string `json:"tags,omitempty"`
+	Status         string   `json:"status,omitempty"`
+}
+
+// UpdateResponse represents the response for updating findings
+type UpdateResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// GetFindings fetches findings from Plextrac
+func (a *App) GetFindings(request FindingsRequest) FindingsResponse {
+	// Create a custom logger that emits events
+	customLogger := a.createEventLogger()
+	customLogger.Info("Fetching findings from Plextrac")
+
+	// Send status event
+	runtime.EventsEmit(a.ctx, "n2p:status", "Fetching findings...")
+
+	// Create a properly formatted map for the n2p.Engine
+	engineArgs := map[string]interface{}{
+		"username":        request.Username,
+		"password":        request.Password,
+		"target_plextrac": request.TargetPlextrac,
+		"client_id":       request.ClientId,
+		"report_id":       request.ReportId,
+		"verbosity":       1,
+		"logger":          customLogger,
+	}
+
+	// Create the engine
+	engine := n2p.NewEngine(engineArgs)
+
+	// Initialize the engine
+	if err := engine.InitializeEngine(); err != nil {
+		customLogger.WithError(err).Error("Failed to initialize engine")
+		return FindingsResponse{
+			Success:  false,
+			Error:    fmt.Sprintf("Failed to initialize engine: %v", err),
+			Findings: []Finding{}, // Return empty array to avoid null checks in frontend
+		}
+	}
+
+	// Get the flaws URL
+	url := engine.URLManager.GetFlawsURL()
+	if url == "" {
+		customLogger.Error("Failed to get flaws URL")
+		return FindingsResponse{
+			Success:  false,
+			Error:    "Failed to get flaws URL",
+			Findings: []Finding{}, // Return empty array to avoid null checks in frontend
+		}
+	}
+
+	customLogger.Infof("Fetching findings from URL: %s", url)
+
+	// Make the request
+	response, err := engine.RequestHandler.Get(url, nil, nil)
+	if err != nil {
+		customLogger.WithError(err).Error("Failed to fetch findings")
+		return FindingsResponse{
+			Success:  false,
+			Error:    fmt.Sprintf("Failed to fetch findings: %v", err),
+			Findings: []Finding{}, // Return empty array to avoid null checks in frontend
+		}
+	}
+
+	// Check response status
+	if response.GetStatusCode() != 200 {
+		customLogger.Errorf("Failed to fetch findings: status code %d", response.GetStatusCode())
+		return FindingsResponse{
+			Success:  false,
+			Error:    fmt.Sprintf("Failed to fetch findings: status code %d", response.GetStatusCode()),
+			Findings: []Finding{}, // Return empty array to avoid null checks in frontend
+		}
+	}
+
+	// Log raw response for debugging
+	bodyBytes := response.GetBody()
+	if len(bodyBytes) > 0 {
+		customLogger.Debugf("Raw response body: %s", string(bodyBytes[:min(1000, len(bodyBytes))]))
+	}
+
+	// Decode the response using the new function with better error handling
+	flawsResponse, err := a.decodeFlawsResponse(response, customLogger)
+	if err != nil {
+		customLogger.WithError(err).Error("Failed to decode findings response")
+		return FindingsResponse{
+			Success:  false,
+			Error:    fmt.Sprintf("Failed to decode findings response: %v", err),
+			Findings: []Finding{}, // Return empty array to avoid null checks in frontend
+		}
+	}
+
+	// Send debug event with the number of flaws
+	runtime.EventsEmit(a.ctx, "n2p:debug", map[string]interface{}{
+		"response": fmt.Sprintf("Found %d findings in response", len(flawsResponse)),
+	})
+
+	// Transform the response into our Finding struct
+	findings := make([]Finding, 0)
+
+	// Get existing findings using a more direct approach
+	for _, flawData := range flawsResponse {
+		// Log each flaw data for debugging
+		customLogger.Debugf("Processing flaw data: %+v", flawData)
+
+		// Extract finding ID
+		var flawID string
+		if id, ok := flawData["id"]; ok {
+			flawID = fmt.Sprintf("%v", id)
+		} else if data, ok := flawData["data"].([]interface{}); ok && len(data) > 0 {
+			flawID = fmt.Sprintf("%v", data[0])
+		} else {
+			customLogger.Warnf("Could not extract flaw ID from data: %+v", flawData)
+			continue
+		}
+
+		customLogger.Infof("Processing flaw ID: %s", flawID)
+
+		// Fetch detailed information for each flaw
+		detailedFlaw, err := a.getDetailedFinding(engine, flawID)
+		if err != nil {
+			customLogger.WithError(err).Warnf("Failed to get detailed information for flaw %s", flawID)
+			continue
+		}
+
+		// Map the detailed flaw data to our Finding struct
+		finding := Finding{
+			FlawID:          flawID,
+			Title:           getStringValue(detailedFlaw, "title"),
+			Severity:        getStringValue(detailedFlaw, "severity"),
+			Status:          getStringValue(detailedFlaw, "status"),
+			Description:     getStringValue(detailedFlaw, "description"),
+			Recommendations: getStringValue(detailedFlaw, "recommendations"),
+		}
+
+		// Extract tags
+		if tags, ok := detailedFlaw["tags"].([]interface{}); ok {
+			finding.Tags = make([]string, len(tags))
+			for i, tag := range tags {
+				finding.Tags[i] = fmt.Sprintf("%v", tag)
+			}
+		}
+
+		// Extract custom fields, handling both array and map formats
+		if fields, ok := detailedFlaw["fields"].([]interface{}); ok {
+			finding.Fields = make([]FieldValue, 0)
+			for _, field := range fields {
+				if fieldMap, ok := field.(map[string]interface{}); ok {
+					fieldValue := FieldValue{
+						Key:   getStringValue(fieldMap, "key"),
+						Label: getStringValue(fieldMap, "label"),
+						Value: getStringValue(fieldMap, "value"),
+					}
+					finding.Fields = append(finding.Fields, fieldValue)
+				}
+			}
+		} else if fields, ok := detailedFlaw["fields"].(map[string]interface{}); ok {
+			// Handle fields as a map
+			finding.Fields = make([]FieldValue, 0, len(fields))
+			for key, field := range fields {
+				if fieldMap, ok := field.(map[string]interface{}); ok {
+					fieldValue := FieldValue{
+						Key:   key,
+						Label: getStringValue(fieldMap, "label"),
+						Value: getStringValue(fieldMap, "value"),
+					}
+					finding.Fields = append(finding.Fields, fieldValue)
+				}
+			}
+		}
+
+		findings = append(findings, finding)
+	}
+
+	customLogger.Infof("Successfully fetched %d findings", len(findings))
+
+	// Send completion status
+	runtime.EventsEmit(a.ctx, "n2p:status", fmt.Sprintf("Fetched %d findings", len(findings)))
+
+	return FindingsResponse{
+		Success:  true,
+		Findings: findings,
+	}
+}
+
+// Helper function to get min of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Helper function to decode flaws response with better error handling
+func (a *App) decodeFlawsResponse(response *plextrac.Response, logger *logrus.Logger) ([]map[string]interface{}, error) {
+	// First try to decode as array of maps
+	var flawsArray []map[string]interface{}
+	if err := response.DecodeJSON(&flawsArray); err == nil {
+		logger.Infof("Successfully decoded response as array with %d items", len(flawsArray))
+		return flawsArray, nil
+	}
+
+	// If that fails, try decoding as a map with data field
+	var flawsMap map[string]interface{}
+	if err := response.DecodeJSON(&flawsMap); err != nil {
+		return nil, fmt.Errorf("failed to decode as array or map: %v", err)
+	}
+
+	// Try to extract data array from map
+	if data, ok := flawsMap["data"].([]interface{}); ok {
+		result := make([]map[string]interface{}, 0, len(data))
+		for _, item := range data {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				result = append(result, itemMap)
+			}
+		}
+		logger.Infof("Extracted %d items from data field", len(result))
+		return result, nil
+	}
+
+	// If we get here, we found a map but couldn't extract array data
+	logger.Warnf("Response decoded as map but couldn't extract findings array. Keys: %v", getMapKeys(flawsMap))
+
+	// Return single item array with the map itself
+	return []map[string]interface{}{flawsMap}, nil
+}
+
+// Helper function to get map keys for logging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Helper function to get string value from map
+func getStringValue(data map[string]interface{}, key string) string {
+	if value, ok := data[key]; ok {
+		return fmt.Sprintf("%v", value)
+	}
+	return ""
+}
+
+// Get detailed information for a single finding
+// Get detailed information for a single finding
+func (a *App) getDetailedFinding(engine *n2p.Engine, flawID string) (map[string]interface{}, error) {
+	// Extract the actual flaw ID from the formatted string
+	// Format appears to be: flaw_[clientId]-[reportId]-[actualFlawId]
+	actualFlawID := flawID
+
+	// Check if it matches the pattern
+	if strings.HasPrefix(flawID, "flaw_") {
+		parts := strings.Split(flawID, "-")
+		if len(parts) >= 3 {
+			// The last part is the actual flawID we need
+			actualFlawID = parts[len(parts)-1]
+		}
+	}
+
+	// Log what we're doing
+	engine.Logger.Infof("Getting detailed info for flaw - Original ID: %s, Extracted ID: %s", flawID, actualFlawID)
+
+	// Get the URL for fetching finding details
+	url := engine.URLManager.GetUpdateFindingURL(actualFlawID)
+	if url == "" {
+		engine.Logger.Errorf("Failed to get update finding URL for flaw ID %s", actualFlawID)
+		return nil, fmt.Errorf("failed to get update finding URL for flaw ID %s", actualFlawID)
+	}
+
+	engine.Logger.Infof("Fetching detailed info from URL: %s", url)
+
+	// Make the request with explicit headers
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		"Accept":       "application/json",
+	}
+
+	response, err := engine.RequestHandler.Get(url, headers, nil)
+	if err != nil {
+		engine.Logger.Errorf("Request failed for flaw ID %s: %v", actualFlawID, err)
+		return nil, fmt.Errorf("failed to get detailed finding: %w", err)
+	}
+
+	// Log the response status
+	statusCode := response.GetStatusCode()
+	engine.Logger.Infof("Response status code: %d for flaw ID %s", statusCode, actualFlawID)
+
+	if statusCode != 200 {
+		// Get the response body for more detailed error logging
+		bodyBytes := response.GetBody()
+		bodyStr := string(bodyBytes)
+		engine.Logger.Errorf("Failed to get detailed finding with status code %d: %s", statusCode, bodyStr)
+		return nil, fmt.Errorf("failed to get detailed finding: status code %d, response: %s", statusCode, bodyStr)
+	}
+
+	// Log the first part of the response for debugging
+	bodyBytes := response.GetBody()
+	if len(bodyBytes) > 0 {
+		previewLen := min(500, len(bodyBytes))
+		engine.Logger.Debugf("First %d bytes of response: %s", previewLen, string(bodyBytes[:previewLen]))
+	}
+
+	// Decode the response
+	var detailedFlaw map[string]interface{}
+	if err := response.DecodeJSON(&detailedFlaw); err != nil {
+		engine.Logger.Errorf("Failed to decode detailed finding response: %v", err)
+		return nil, fmt.Errorf("failed to decode detailed finding: %w", err)
+	}
+
+	// Add the original flaw_id to the result
+	detailedFlaw["flaw_id"] = flawID
+
+	// Log the keys found in the response
+	keys := make([]string, 0, len(detailedFlaw))
+	for k := range detailedFlaw {
+		keys = append(keys, k)
+	}
+	engine.Logger.Debugf("Found keys in response for flaw ID %s: %v", actualFlawID, keys)
+
+	return detailedFlaw, nil
+}
+
+// UpdateFinding updates a single finding
+func (a *App) UpdateFinding(request UpdateFindingRequest) UpdateResponse {
+	// Create a custom logger that emits events
+	customLogger := a.createEventLogger()
+	customLogger.Infof("Updating finding %s", request.FindingId)
+
+	// Send status event
+	runtime.EventsEmit(a.ctx, "n2p:status", fmt.Sprintf("Updating finding %s...", request.FindingId))
+
+	// Create a properly formatted map for the n2p.Engine
+	engineArgs := map[string]interface{}{
+		"username":        request.Username,
+		"password":        request.Password,
+		"target_plextrac": request.TargetPlextrac,
+		"client_id":       request.ClientId,
+		"report_id":       request.ReportId,
+		"verbosity":       1,
+		"logger":          customLogger,
+	}
+
+	// Create the engine
+	engine := n2p.NewEngine(engineArgs)
+
+	// Initialize the engine
+	if err := engine.InitializeEngine(); err != nil {
+		customLogger.WithError(err).Error("Failed to initialize engine")
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to initialize engine: %v", err),
+		}
+	}
+
+	// First get the current finding data
+	url := engine.URLManager.GetUpdateFindingURL(request.FindingId)
+	if url == "" {
+		customLogger.Error("Failed to get update finding URL")
+		return UpdateResponse{
+			Success: false,
+			Error:   "Failed to get update finding URL",
+		}
+	}
+
+	response, err := engine.RequestHandler.Get(url, nil, nil)
+	if err != nil {
+		customLogger.WithError(err).Error("Failed to get finding details")
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get finding details: %v", err),
+		}
+	}
+
+	if response.GetStatusCode() != 200 {
+		customLogger.Errorf("Failed to get finding details: status code %d", response.GetStatusCode())
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get finding details: status code %d", response.GetStatusCode()),
+		}
+	}
+
+	var detailedFlaw map[string]interface{}
+	if err := response.DecodeJSON(&detailedFlaw); err != nil {
+		customLogger.WithError(err).Error("Failed to decode finding details")
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to decode finding details: %v", err),
+		}
+	}
+
+	// Update the finding based on the update type
+	switch request.UpdateType {
+	case "severity":
+		detailedFlaw["severity"] = request.Severity
+	case "status":
+		detailedFlaw["status"] = request.Status
+	case "customFields":
+		if request.CustomFields != nil {
+			// First get the existing fields
+			var fields []map[string]interface{}
+
+			// Handle fields as an array or a map
+			if fieldsData, ok := detailedFlaw["fields"].([]interface{}); ok {
+				for _, fieldData := range fieldsData {
+					if field, ok := fieldData.(map[string]interface{}); ok {
+						fields = append(fields, field)
+					}
+				}
+			} else if fieldsMap, ok := detailedFlaw["fields"].(map[string]interface{}); ok {
+				// Convert map to array
+				for key, fieldData := range fieldsMap {
+					if field, ok := fieldData.(map[string]interface{}); ok {
+						field["key"] = key // Ensure key is in the field object
+						fields = append(fields, field)
+					}
+				}
+			}
+
+			// Find and update the field with the matching key, or add it if not found
+			found := false
+			for i, field := range fields {
+				if key, ok := field["key"].(string); ok && key == request.CustomFields.Key {
+					fields[i]["value"] = request.CustomFields.Value
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				// Add new field
+				fields = append(fields, map[string]interface{}{
+					"key":   request.CustomFields.Key,
+					"label": request.CustomFields.Label,
+					"value": request.CustomFields.Value,
+				})
+			}
+
+			detailedFlaw["fields"] = fields
+		}
+	default:
+		customLogger.Warnf("Unknown update type: %s", request.UpdateType)
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Unknown update type: %s", request.UpdateType),
+		}
+	}
+
+	// Update the finding
+	customLogger.Infof("Sending PUT request to update finding %s", request.FindingId)
+	putResponse, err := engine.RequestHandler.Put(url, nil, nil, detailedFlaw)
+	if err != nil {
+		customLogger.WithError(err).Error("Failed to update finding")
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to update finding: %v", err),
+		}
+	}
+
+	// Check response status
+	if putResponse.GetStatusCode() != 200 {
+		customLogger.Errorf("Failed to update finding: status code %d", putResponse.GetStatusCode())
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to update finding: status code %d", putResponse.GetStatusCode()),
+		}
+	}
+
+	customLogger.Infof("Successfully updated finding %s", request.FindingId)
+
+	return UpdateResponse{
+		Success: true,
+	}
+}
+
+// BulkUpdateFindings performs a bulk update of findings
+func (a *App) BulkUpdateFindings(request BulkUpdateRequest) UpdateResponse {
+	// Create a custom logger that emits events
+	customLogger := a.createEventLogger()
+	customLogger.Infof("Bulk updating %d findings", len(request.FindingIds))
+
+	// Send status event
+	runtime.EventsEmit(a.ctx, "n2p:status", fmt.Sprintf("Bulk updating %d findings...", len(request.FindingIds)))
+
+	// Create a properly formatted map for the n2p.Engine
+	engineArgs := map[string]interface{}{
+		"username":        request.Username,
+		"password":        request.Password,
+		"target_plextrac": request.TargetPlextrac,
+		"client_id":       request.ClientId,
+		"report_id":       request.ReportId,
+		"verbosity":       1,
+		"logger":          customLogger,
+	}
+
+	// Create the engine
+	engine := n2p.NewEngine(engineArgs)
+
+	// Initialize the engine
+	if err := engine.InitializeEngine(); err != nil {
+		customLogger.WithError(err).Error("Failed to initialize engine")
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to initialize engine: %v", err),
+		}
+	}
+
+	// Prepare URL for bulk update
+	baseURL := fmt.Sprintf("https://%s.kevlar.bulletproofsi.net", request.TargetPlextrac)
+	url := fmt.Sprintf("%s/api/v2/clients/%s/reports/%s/findings", baseURL, request.ClientId, request.ReportId)
+
+	// Debug log the URL
+	customLogger.Infof("Bulk update URL: %s", url)
+
+	// Prepare data object based on update type
+	data := map[string]interface{}{}
+
+	switch request.UpdateType {
+	case "tags":
+		data["tags"] = request.Tags
+	case "status":
+		data["status"] = request.Status
+	default:
+		customLogger.Warnf("Unknown bulk update type: %s", request.UpdateType)
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Unknown bulk update type: %s", request.UpdateType),
+		}
+	}
+
+	// Extract numeric IDs from string IDs
+	numericIds := make([]int, 0, len(request.FindingIds))
+	for _, findingId := range request.FindingIds {
+		// For IDs in the format "flaw_clientId-reportId-actualId"
+		if strings.HasPrefix(findingId, "flaw_") {
+			parts := strings.Split(findingId, "-")
+			if len(parts) >= 3 {
+				// The last part is the actual flawID we need
+				actualId := parts[len(parts)-1]
+				numId, err := strconv.Atoi(actualId)
+				if err != nil {
+					customLogger.Warnf("Failed to parse numeric ID from %s: %v", findingId, err)
+					continue
+				}
+				numericIds = append(numericIds, numId)
+			} else {
+				customLogger.Warnf("Finding ID %s does not match expected format", findingId)
+			}
+		} else {
+			// Try to parse the ID directly as a number
+			numId, err := strconv.Atoi(findingId)
+			if err != nil {
+				customLogger.Warnf("Failed to parse numeric ID from %s: %v", findingId, err)
+				continue
+			}
+			numericIds = append(numericIds, numId)
+		}
+	}
+
+	if len(numericIds) == 0 {
+		return UpdateResponse{
+			Success: false,
+			Error:   "Failed to extract any valid numeric finding IDs",
+		}
+	}
+
+	// Format the payload with numeric finding IDs
+	payload := map[string]interface{}{
+		"findings": numericIds,
+		"data":     data,
+	}
+
+	// Log the payload for debugging
+	payloadBytes, _ := json.MarshalIndent(payload, "", "  ")
+	customLogger.Infof("Payload for bulk update: %s", string(payloadBytes))
+
+	// Add authorization header
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	// Make the request using PUT method
+	response, err := engine.RequestHandler.Put(url, headers, nil, payload)
+	if err != nil {
+		customLogger.WithError(err).Error("Failed to perform bulk update")
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to perform bulk update: %v", err),
+		}
+	}
+
+	// Check response status
+	statusCode := response.GetStatusCode()
+	bodyBytes := response.GetBody()
+	bodyStr := string(bodyBytes)
+
+	customLogger.Infof("Response status: %d", statusCode)
+	customLogger.Infof("Response body: %s", bodyStr)
+
+	if statusCode != 200 {
+		customLogger.Errorf("Failed to perform bulk update: status code %d, body: %s", statusCode, bodyStr)
+		return UpdateResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to perform bulk update: status code %d", statusCode),
+		}
+	}
+
+	customLogger.Infof("Successfully performed bulk update for %d findings", len(numericIds))
+
+	return UpdateResponse{
+		Success: true,
+	}
+}
+
 func main() {
+	// Setup global panic handler for uncaught exceptions
+	setupGlobalPanicHandler()
+
 	// Command line handling
 	if len(os.Args) > 1 && os.Args[1] != "serve" {
 		parsedArgs := args.ParseArgs()
 		if parsedArgs.NessusMode != "" {
-			engine.HandleNessusController(parsedArgs)
+			// Add crash reporting to Nessus controller command-line mode
+			reporter := crash.NewReporter("crash_reports")
+			func() {
+				defer reporter.RecoverWithCrashReport("NessusControllerCLI", map[string]string{
+					"mode":    parsedArgs.NessusMode,
+					"host":    parsedArgs.RemoteHost,
+					"project": parsedArgs.ProjectName,
+				})
+				engine.HandleNessusController(parsedArgs)
+			}()
 			return
 		}
-		engine.RunNMB(parsedArgs)
+
+		// Add crash reporting to normal NMB command-line mode
+		reporter := crash.NewReporter("crash_reports")
+		func() {
+			defer reporter.RecoverWithCrashReport("NMBCLI", map[string]string{
+				"nessusFile": parsedArgs.NessusFilePath,
+				"projectDir": parsedArgs.ProjectFolder,
+				"numWorkers": fmt.Sprintf("%d", parsedArgs.NumWorkers),
+				"configFile": parsedArgs.ConfigFilePath,
+			})
+			engine.RunNMB(parsedArgs)
+		}()
 		return
 	}
 
 	app := NewApp()
+
+	// Start API server with crash reporting
+	go func() {
+		reporter := crash.NewReporter("crash_reports")
+		defer reporter.RecoverWithCrashReport("APIServer", nil)
+
+		server := api.NewServer()
+		if err := server.Run(); err != nil {
+			log.Printf("API server error: %v", err)
+		}
+	}()
+
 	err := wails.Run(&options.App{
 		Title:            "NMB",
 		Width:            1200,
@@ -1099,6 +1849,7 @@ func main() {
 		CSSDragProperty: "--wails-draggable",
 		CSSDragValue:    "drag",
 	})
+
 	if err != nil {
 		log.Fatal(err)
 	}

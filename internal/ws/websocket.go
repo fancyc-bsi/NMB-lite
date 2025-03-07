@@ -107,21 +107,6 @@ func (wsm *WebSocketManager) AddClient(conn *websocket.Conn) {
 	// Initialize write mutex for this connection
 	wsm.writeMu.Store(conn, &sync.Mutex{})
 
-	// Send initial message
-	// msg := LogMessage{
-	// 	Type:    "info",
-	// 	Message: "Connected to WebSocket server",
-	// 	Time:    time.Now().Format("2006/01/02 15:04:05"),
-	// }
-
-	// if mutex, ok := wsm.writeMu.Load(conn); ok {
-	// 	writeMu := mutex.(*sync.Mutex)
-	// 	writeMu.Lock()
-	// 	if err := conn.WriteJSON(msg); err != nil {
-	// 		log.Printf("Error sending initial message: %v", err)
-	// 	}
-	// 	writeMu.Unlock()
-	// }
 }
 
 func (wsm *WebSocketManager) RemoveClient(conn *websocket.Conn) {

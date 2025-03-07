@@ -11,6 +11,8 @@ export function BrowseForNessusDirectory():Promise<string>;
 
 export function BrowseForScreenshotDirectory():Promise<string>;
 
+export function BulkUpdateFindings(arg1:main.BulkUpdateRequest):Promise<main.UpdateResponse>;
+
 export function ClearChanges():Promise<void>;
 
 export function CreateCategory(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -36,6 +38,8 @@ export function GetCategoryInfo(arg1:string):Promise<plugin.CategoryInfo>;
 export function GetConfigPath():Promise<string>;
 
 export function GetFieldTemplates(arg1:{[key: string]: string}):Promise<Array<{[key: string]: string}>>;
+
+export function GetFindings(arg1:main.FindingsRequest):Promise<main.FindingsResponse>;
 
 export function GetNonMergedPlugins():Promise<Array<plugin.PluginInfo>>;
 
@@ -78,6 +82,8 @@ export function SimulateFindings():Promise<{[key: string]: Array<plugin.PluginIn
 export function UpdateCSVPath(arg1:string):Promise<void>;
 
 export function UpdateCategory(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateFinding(arg1:main.UpdateFindingRequest):Promise<main.UpdateResponse>;
 
 export function ViewChanges():Promise<string>;
 

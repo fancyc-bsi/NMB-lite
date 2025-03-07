@@ -32,7 +32,7 @@ const DRONE_LIST = [
   "streetfighter", "tempest", "tron", "wizardry", "beserk", "zaxxon", "zork",
   "doubledragon", "gorf", "ballblazer", "centipede", "combat", "hangon", "mario",
   "foodfight", "excitebike", "jinks", "zelda", "frogger", "battlezone", "freeway",
-  "pacman", "tetris", "sonic", "burgertime", "diablo", "lemmings", "quake", "myst",
+  "pacman", "pendrone", "tetris", "sonic", "burgertime", "diablo", "lemmings", "quake", "myst",
   "fzero", "blasteroids", "outrun", "rampart", "castlevania", "ikari", "halo",
   "simcity", "warcraft", "starwars", "choplifter", "gunfight", "metroid",
   "ninjagaiden", "iceclimber", "icehockey", "radracer", "battletoads", "gradius",

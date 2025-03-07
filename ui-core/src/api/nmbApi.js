@@ -69,6 +69,80 @@ const nmbApi = {
       throw new Error(`Failed to control Nessus: ${error.message}`);
     }
   },
+  
+  // New methods for enhanced Nessus Controller
+  getScans: async (host, user = 'bstg', pass = 'BulletH@x') => {
+    try {
+      const response = await apiClient.get(`/nessus/scans?host=${encodeURIComponent(host)}&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to get scans: ${error.message}`);
+    }
+  },
+  
+  getScanDetail: async (scanId, host, user = 'bstg', pass = 'BulletH@x') => {
+    try {
+      const response = await apiClient.get(`/nessus/scan/${scanId}?host=${encodeURIComponent(host)}&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to get scan details: ${error.message}`);
+    }
+  },
+  
+  controlScan: async (scanId, action, host, user = 'bstg', pass = 'BulletH@x') => {
+    try {
+      const response = await apiClient.post(`/nessus/scan/${scanId}/${action}?host=${encodeURIComponent(host)}&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to ${action} scan: ${error.message}`);
+    }
+  },
+  
+  // WebSocket connection management
+  connectToWebSocket: (onMessage) => {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsProtocol}://${window.location.hostname}:8080/ws`;
+    
+    const socket = new WebSocket(wsUrl);
+    
+    socket.onopen = () => {
+      console.log('WebSocket connection established');
+      
+      // Set up ping to keep connection alive
+      const pingInterval = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send('ping');
+        } else {
+          clearInterval(pingInterval);
+        }
+      }, 30000);
+    };
+    
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        onMessage(data);
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
+      }
+    };
+    
+    socket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    socket.onclose = (event) => {
+      console.log('WebSocket connection closed:', event.code, event.reason);
+      
+      // Attempt to reconnect after a delay
+      setTimeout(() => {
+        console.log('Attempting to reconnect WebSocket...');
+        nmbApi.connectToWebSocket(onMessage);
+      }, 5000);
+    };
+    
+    return socket;
+  }
 };
 
 export default nmbApi;

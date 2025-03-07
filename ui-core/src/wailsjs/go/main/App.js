@@ -18,6 +18,10 @@ export function BrowseForScreenshotDirectory() {
   return window['go']['main']['App']['BrowseForScreenshotDirectory']();
 }
 
+export function BulkUpdateFindings(arg1) {
+  return window['go']['main']['App']['BulkUpdateFindings'](arg1);
+}
+
 export function ClearChanges() {
   return window['go']['main']['App']['ClearChanges']();
 }
@@ -68,6 +72,10 @@ export function GetConfigPath() {
 
 export function GetFieldTemplates(arg1) {
   return window['go']['main']['App']['GetFieldTemplates'](arg1);
+}
+
+export function GetFindings(arg1) {
+  return window['go']['main']['App']['GetFindings'](arg1);
 }
 
 export function GetNonMergedPlugins() {
@@ -152,6 +160,10 @@ export function UpdateCSVPath(arg1) {
 
 export function UpdateCategory(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateCategory'](arg1, arg2, arg3);
+}
+
+export function UpdateFinding(arg1) {
+  return window['go']['main']['App']['UpdateFinding'](arg1);
 }
 
 export function ViewChanges() {

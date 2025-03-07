@@ -54,13 +54,35 @@ func (m *URLManager) GetWriteupDBURL(writeupID string) string {
 
 // GetUpdateFindingURL returns the URL for updating a specific finding
 func (m *URLManager) GetUpdateFindingURL(flawID string) string {
+	// If flawID already has a special format like "flaw_[clientId]-[reportId]-[actualFlawId]"
+	// extract the actual flawID
+	actualFlawID := flawID
+	if strings.HasPrefix(flawID, "flaw_") {
+		parts := strings.Split(flawID, "-")
+		if len(parts) >= 3 {
+			// The last part is the actual flawID we need
+			actualFlawID = parts[len(parts)-1]
+		}
+	}
+
+	// Construct the URL using the API v1 format
+	apiUrl := fmt.Sprintf(
+		"client/%s/report/%s/flaw/%s",
+		m.args["client_id"],
+		m.args["report_id"],
+		actualFlawID,
+	)
+
+	// Log the constructed URL for debugging
+	fmt.Printf("Constructed URL for flaw ID %s: %s/%s\n", flawID, m.baseURL, apiUrl)
+
 	return m.constructURL(
 		"client",
 		m.args["client_id"],
 		"report",
 		m.args["report_id"],
 		"flaw",
-		flawID,
+		actualFlawID,
 	)
 }
 
